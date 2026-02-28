@@ -1,11 +1,20 @@
+mod ai_helper;
+mod ask;
+mod compare;
+mod deep;
+mod grounded;
+mod search;
+mod summarize;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use nakama_core::Config;
 use nakama_log::init_logging;
+use nakama_ui::NakamaUI;
 
 const TOOL_NAME: &str = "kami";
 
-/// Kami - Gemini-powered search and research
+/// Kami - AI-powered search, research, and fact-checking
 #[derive(Parser, Debug)]
 #[command(name = TOOL_NAME, version, about, long_about = None)]
 struct Cli {
@@ -15,7 +24,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Search the web using Gemini-powered intelligence
+    /// Search using AI intelligence
     Search {
         /// The search query
         #[arg()]
@@ -36,14 +45,14 @@ enum Commands {
         url: String,
     },
 
-    /// Ask a question and get a grounded, sourced answer
+    /// Ask a question and get a grounded answer
     Ask {
         /// The question to answer
         #[arg()]
         question: String,
     },
 
-    /// Fact-check a claim with grounded sources
+    /// Fact-check a claim
     Grounded {
         /// The claim to verify
         #[arg()]
@@ -62,36 +71,22 @@ enum Commands {
 async fn main() -> Result<()> {
     let config = Config::load(TOOL_NAME).unwrap_or_default();
     let _log_guard = init_logging(TOOL_NAME, &config.logging)?;
-
-    println!("{} v{}", TOOL_NAME, env!("CARGO_PKG_VERSION"));
+    let ui = NakamaUI::from_config(&config);
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Search { query } => {
-            println!("[search] Coming soon: Gemini-powered web search");
-            println!("  Query: {}", query);
-        }
-        Commands::Deep { query } => {
-            println!("[deep] Coming soon: deep research dive");
-            println!("  Query: {}", query);
-        }
-        Commands::Summarize { url } => {
-            println!("[summarize] Coming soon: URL content summarization");
-            println!("  URL: {}", url);
-        }
-        Commands::Ask { question } => {
-            println!("[ask] Coming soon: grounded Q&A");
-            println!("  Question: {}", question);
-        }
-        Commands::Grounded { claim } => {
-            println!("[grounded] Coming soon: claim fact-checking");
-            println!("  Claim: {}", claim);
-        }
-        Commands::Compare { items } => {
-            println!("[compare] Coming soon: multi-item comparison");
-            println!("  Items: {}", items.join(", "));
-        }
+    let result = match cli.command {
+        Commands::Search { query } => search::run(&config, &ui, &query).await,
+        Commands::Deep { query } => deep::run(&config, &ui, &query).await,
+        Commands::Summarize { url } => summarize::run(&config, &ui, &url).await,
+        Commands::Ask { question } => ask::run(&config, &ui, &question).await,
+        Commands::Grounded { claim } => grounded::run(&config, &ui, &claim).await,
+        Commands::Compare { items } => compare::run(&config, &ui, &items).await,
+    };
+
+    if let Err(e) = result {
+        ui.error(&format!("{}", e));
+        std::process::exit(1);
     }
 
     Ok(())
