@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 nakama-core = { workspace = true }
+nakama-vault = { workspace = true }
 nakama-ui = { workspace = true }
 nakama-ai = { workspace = true }
 nakama-log = { workspace = true }
@@ -20,3 +21,4 @@ nakama-ipc = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+serde_json = { workspace = true }
