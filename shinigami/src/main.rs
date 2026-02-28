@@ -2,6 +2,17 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use nakama_core::Config;
 use nakama_log::init_logging;
+use nakama_ui::NakamaUI;
+
+mod ai_helper;
+mod branch;
+mod changelog;
+mod commit;
+mod git;
+mod hook;
+mod release;
+mod review;
+mod squash;
 
 const TOOL_NAME: &str = "shinigami";
 
@@ -61,43 +72,23 @@ enum Commands {
 async fn main() -> Result<()> {
     let config = Config::load(TOOL_NAME).unwrap_or_default();
     let _log_guard = init_logging(TOOL_NAME, &config.logging)?;
-
-    println!("{} v{}", TOOL_NAME, env!("CARGO_PKG_VERSION"));
+    let ui = NakamaUI::from_config(&config);
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Commit => {
-            println!("[commit] Coming soon: AI-generated commit message from staged changes");
-        }
-        Commands::Reap { from, to } => {
-            println!("[reap] Coming soon: changelog between refs");
-            if let Some(f) = from {
-                println!("  From: {}", f);
-            }
-            if let Some(t) = to {
-                println!("  To: {}", t);
-            }
-        }
-        Commands::Branch { description } => {
-            println!("[branch] Coming soon: AI-named branch creation");
-            println!("  Description: {}", description);
-        }
-        Commands::Squash => {
-            println!("[squash] Coming soon: interactive squash with AI message");
-        }
-        Commands::Release { version } => {
-            println!("[release] Coming soon: release notes generation");
-            println!("  Version: {}", version);
-        }
-        Commands::Review => {
-            println!("[review] Coming soon: AI review of uncommitted changes");
-        }
-        Commands::Hook { action } => {
-            println!("[hook] Coming soon: git hook management");
-            println!("  Action: {}", action);
-        }
+    let result = match cli.command {
+        Commands::Commit => commit::run(&config, &ui).await,
+        Commands::Reap { from, to } => changelog::run(&config, &ui, from, to).await,
+        Commands::Branch { description } => branch::run(&config, &ui, &description).await,
+        Commands::Squash => squash::run(&config, &ui).await,
+        Commands::Release { version } => release::run(&config, &ui, &version).await,
+        Commands::Review => review::run(&config, &ui).await,
+        Commands::Hook { action } => hook::run(&ui, &action),
+    };
+
+    if let Err(e) = &result {
+        ui.error(&format!("{:#}", e));
     }
 
-    Ok(())
+    result
 }
