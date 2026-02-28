@@ -8,6 +8,12 @@
 
 set -euo pipefail
 
+# Source cargo environment if available
+if [ -f "${HOME}/.cargo/env" ]; then
+    # shellcheck source=/dev/null
+    . "${HOME}/.cargo/env"
+fi
+
 BOLD='\033[1m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
