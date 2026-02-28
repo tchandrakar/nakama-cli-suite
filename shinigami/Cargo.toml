@@ -23,6 +23,7 @@ clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 git2 = { workspace = true }
+openssl = { workspace = true }
 chrono = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

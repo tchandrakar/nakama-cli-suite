@@ -86,6 +86,7 @@ dirs = "6"
 
 # Git
 git2 = { version = "0.19", default-features = false, features = ["https"] }
+openssl = { version = "0.10", features = ["vendored"] }
 
 # Semver
 semver = "1"
