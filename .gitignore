@@ -4,5 +4,3 @@ target/
 .DS_Store
 .env
 *.db
-
-# Development planning and execution tracking (local only)
