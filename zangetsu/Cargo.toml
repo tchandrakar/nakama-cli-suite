@@ -17,6 +17,12 @@ nakama-ai = { workspace = true }
 nakama-log = { workspace = true }
 nakama-audit = { workspace = true }
 nakama-ipc = { workspace = true }
+nakama-vault = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
-anyhow = { workspace = true }
+anyhow = "1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+dirs = { workspace = true }

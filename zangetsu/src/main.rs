@@ -1,7 +1,22 @@
+//! Zangetsu — Your AI-powered shell companion.
+//!
+//! Translates natural-language queries into shell commands, explains commands,
+//! fixes failures, builds pipelines, and keeps a history of interactions.
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use nakama_core::Config;
 use nakama_log::init_logging;
+use nakama_ui::NakamaUI;
+
+mod ask;
+mod chain;
+mod context;
+mod explain;
+mod fix;
+mod history;
+mod provider;
+mod risk;
 
 const TOOL_NAME: &str = "zangetsu";
 
@@ -22,13 +37,6 @@ enum Commands {
         query: String,
     },
 
-    /// Translate a natural-language query into a shell command and execute it
-    Run {
-        /// The natural-language query describing what you want to run
-        #[arg()]
-        query: String,
-    },
-
     /// Explain what a shell command does in plain English
     Explain {
         /// The shell command to explain
@@ -36,52 +44,39 @@ enum Commands {
         command: String,
     },
 
-    /// Show and search your shell history with AI-powered context
-    History,
+    /// Read the last failed command from shell history and suggest a fix
+    Fix,
 
-    /// Create a smart alias from a natural-language description
-    Alias {
-        /// Name for the alias
-        #[arg()]
-        name: String,
-
-        /// Natural-language description of what the alias should do
+    /// Generate a multi-step command pipeline from a description
+    Chain {
+        /// Natural-language description of the pipeline you want
         #[arg()]
         query: String,
     },
+
+    /// Show AI interaction history for zangetsu
+    History,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::load(TOOL_NAME).unwrap_or_default();
     let _log_guard = init_logging(TOOL_NAME, &config.logging)?;
-
-    println!("{} v{}", TOOL_NAME, env!("CARGO_PKG_VERSION"));
+    let ui = NakamaUI::from_config(&config);
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Ask { query } => {
-            println!("[ask] Coming soon: translating query to shell command");
-            println!("  Query: {}", query);
-        }
-        Commands::Run { query } => {
-            println!("[run] Coming soon: executing AI-generated command");
-            println!("  Query: {}", query);
-        }
-        Commands::Explain { command } => {
-            println!("[explain] Coming soon: explaining command");
-            println!("  Command: {}", command);
-        }
-        Commands::History => {
-            println!("[history] Coming soon: AI-enhanced shell history");
-        }
-        Commands::Alias { name, query } => {
-            println!("[alias] Coming soon: creating smart alias");
-            println!("  Name: {}", name);
-            println!("  Query: {}", query);
-        }
+    let result = match cli.command {
+        Commands::Ask { query } => ask::run(&config, &ui, &query).await,
+        Commands::Explain { command } => explain::run(&config, &ui, &command).await,
+        Commands::Fix => fix::run(&config, &ui).await,
+        Commands::Chain { query } => chain::run(&config, &ui, &query).await,
+        Commands::History => history::run(&config, &ui).await,
+    };
+
+    if let Err(ref e) = result {
+        ui.error(&format!("{:#}", e));
     }
 
-    Ok(())
+    result
 }
