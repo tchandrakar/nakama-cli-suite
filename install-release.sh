@@ -86,10 +86,16 @@ echo -e "${GREEN}●${NC} Detected platform: ${BOLD}${PLATFORM}${NC}"
 
 # Fetch the latest release tag from GitHub API
 echo -e "${YELLOW}◐${NC} Fetching latest release..."
-LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+LATEST_TAG=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+
+# Fallback: if /latest returns nothing (e.g. only prereleases exist), grab the first from /releases
+if [ -z "$LATEST_TAG" ]; then
+    LATEST_TAG=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+fi
 
 if [ -z "$LATEST_TAG" ]; then
     echo -e "${RED}Error: Could not determine latest release.${NC}"
+    echo -e "  Check https://github.com/${REPO}/releases for available releases."
     exit 1
 fi
 
