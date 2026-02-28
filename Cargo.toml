@@ -71,6 +71,9 @@ rand = "0.8"
 # Database
 rusqlite = { version = "0.32", features = ["bundled"] }
 
+# Regex
+regex = "1"
+
 # Time
 chrono = { version = "0.4", features = ["serde"] }
 
