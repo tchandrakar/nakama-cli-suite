@@ -2,7 +2,7 @@
 
 use crate::entry::{AuditEntry, Category, Outcome};
 use crate::query::AuditFilter;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use nakama_core::config::AuditConfig;
 use nakama_core::error::{NakamaError, NakamaResult};
 use rusqlite::{params, Connection};

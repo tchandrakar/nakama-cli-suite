@@ -26,7 +26,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Tishant Chandrakar <tchandrakar@mt.iitr.ac.in>"]
 license = "MIT"
-repository = "https://github.com/tishant-chandrakar/nakama-cli-suite"
+repository = "https://github.com/tchandrakar/nakama-cli-suite"
 rust-version = "1.75"
 
 [workspace.dependencies]
@@ -58,7 +58,7 @@ crossterm = "0.28"
 indicatif = "0.17"
 comfy-table = "7"
 syntect = "5"
-owo-colors = "4"
+owo-colors = { version = "4", features = ["supports-colors"] }
 
 # Security
 keyring = "3"

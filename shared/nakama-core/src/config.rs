@@ -2,7 +2,6 @@ use crate::error::{NakamaError, NakamaResult};
 use crate::paths;
 use crate::types::*;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 /// Global Nakama configuration (loaded from ~/.nakama/config.toml).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +133,17 @@ impl Default for AiConfig {
             ollama: OllamaConfig::default(),
             retry: RetryConfig::default(),
             budget: None,
+        }
+    }
+}
+
+impl Default for ProviderModels {
+    fn default() -> Self {
+        Self {
+            model_fast: String::new(),
+            model_balanced: String::new(),
+            model_powerful: String::new(),
+            base_url: None,
         }
     }
 }
@@ -278,16 +288,19 @@ impl Config {
 
 /// Deep merge two TOML values (source overrides target).
 fn merge_toml(target: &mut toml::Value, source: &toml::Value) {
-    if let (toml::Value::Table(target_map), toml::Value::Table(source_map)) = (target, source) {
-        for (key, value) in source_map {
-            if let Some(existing) = target_map.get_mut(key) {
-                merge_toml(existing, value);
-            } else {
-                target_map.insert(key.clone(), value.clone());
+    match (target, source) {
+        (toml::Value::Table(target_map), toml::Value::Table(source_map)) => {
+            for (key, value) in source_map {
+                if let Some(existing) = target_map.get_mut(key) {
+                    merge_toml(existing, value);
+                } else {
+                    target_map.insert(key.clone(), value.clone());
+                }
             }
         }
-    } else {
-        *target = source.clone();
+        (target, _) => {
+            *target = source.clone();
+        }
     }
 }
 
