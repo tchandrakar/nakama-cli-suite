@@ -1,0 +1,14 @@
+[package]
+name = "nakama-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Claude-style terminal output for the Nakama CLI Suite"
+
+[dependencies]
+nakama-core = { workspace = true }
+crossterm = { workspace = true }
+indicatif = { workspace = true }
+comfy-table = { workspace = true }
+owo-colors = { workspace = true }
