@@ -1,7 +1,14 @@
+mod ai_helper;
+mod ask;
+mod deps;
+mod index_cmd;
+mod map;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use nakama_core::Config;
 use nakama_log::init_logging;
+use nakama_ui::NakamaUI;
 
 const TOOL_NAME: &str = "senku";
 
@@ -15,28 +22,21 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Index the current codebase for AI-powered search and Q&A
+    /// Index the current codebase: count files by extension and total lines
     Index,
 
-    /// Ask a question about the codebase
+    /// Ask a question about the codebase using AI
     Ask {
         /// The question to ask about the codebase
         #[arg()]
         question: String,
     },
 
-    /// Explain a file, function, module, or concept in the codebase
-    Explain {
-        /// The target to explain (file path, function name, module, etc.)
-        #[arg()]
-        target: String,
-    },
-
-    /// Generate an architectural map of the codebase
+    /// Generate a directory tree visualization of the codebase
     Map,
 
-    /// Generate an onboarding guide for new contributors
-    Onboard,
+    /// List project dependencies from Cargo.toml, package.json, or requirements.txt
+    Deps,
 
     /// Search the codebase with natural-language queries
     Search {
@@ -44,46 +44,30 @@ enum Commands {
         #[arg()]
         query: String,
     },
-
-    /// Explain the current git diff in plain English
-    #[command(name = "diff-explain")]
-    DiffExplain,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::load(TOOL_NAME).unwrap_or_default();
     let _log_guard = init_logging(TOOL_NAME, &config.logging)?;
-
-    println!("{} v{}", TOOL_NAME, env!("CARGO_PKG_VERSION"));
+    let ui = NakamaUI::from_config(&config);
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Index => {
-            println!("[index] Coming soon: codebase indexing for AI search");
-        }
-        Commands::Ask { question } => {
-            println!("[ask] Coming soon: codebase Q&A");
-            println!("  Question: {}", question);
-        }
-        Commands::Explain { target } => {
-            println!("[explain] Coming soon: codebase explainer");
-            println!("  Target: {}", target);
-        }
-        Commands::Map => {
-            println!("[map] Coming soon: architectural map generation");
-        }
-        Commands::Onboard => {
-            println!("[onboard] Coming soon: onboarding guide generation");
-        }
+    let result = match cli.command {
+        Commands::Index => index_cmd::run(&config, &ui).await,
+        Commands::Ask { question } => ask::run(&config, &ui, &question).await,
+        Commands::Map => map::run(&config, &ui).await,
+        Commands::Deps => deps::run(&config, &ui).await,
         Commands::Search { query } => {
-            println!("[search] Coming soon: natural-language codebase search");
-            println!("  Query: {}", query);
+            ui.panel("Search", &format!("Searching for: {}\n\nNatural-language search is coming soon.", query));
+            Ok(())
         }
-        Commands::DiffExplain => {
-            println!("[diff-explain] Coming soon: AI-powered diff explanation");
-        }
+    };
+
+    if let Err(e) = result {
+        ui.error(&format!("{}", e));
+        std::process::exit(1);
     }
 
     Ok(())
