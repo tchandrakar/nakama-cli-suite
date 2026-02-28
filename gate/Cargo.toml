@@ -1,0 +1,22 @@
+[package]
+name = "gate"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Gate - Interactive API explorer and HTTP client"
+
+[[bin]]
+name = "gate"
+path = "src/main.rs"
+
+[dependencies]
+nakama-core = { workspace = true }
+nakama-ui = { workspace = true }
+nakama-ai = { workspace = true }
+nakama-log = { workspace = true }
+nakama-audit = { workspace = true }
+nakama-ipc = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
