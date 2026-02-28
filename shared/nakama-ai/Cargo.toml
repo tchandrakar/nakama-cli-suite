@@ -1,0 +1,17 @@
+[package]
+name = "nakama-ai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Multi-provider AI abstraction for the Nakama CLI Suite"
+
+[dependencies]
+nakama-core = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = "0.1"
