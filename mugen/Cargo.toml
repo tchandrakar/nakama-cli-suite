@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 nakama-core = { workspace = true }
+nakama-update = { workspace = true }
 nakama-vault = { workspace = true }
 nakama-ui = { workspace = true }
 nakama-ai = { workspace = true }

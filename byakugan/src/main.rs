@@ -72,6 +72,8 @@ async fn main() -> Result<()> {
 
     let ui = NakamaUI::from_config(&config);
 
+    let update_rx = nakama_update::spawn_check(&config.updates, env!("CARGO_PKG_VERSION"));
+
     ui.panel(
         "Byakugan",
         &format!("AI-Powered Code Reviewer v{}", env!("CARGO_PKG_VERSION")),
@@ -154,7 +156,7 @@ async fn main() -> Result<()> {
     }
 
     // Report the final outcome.
-    match outcome {
+    let final_result = match outcome {
         Ok(()) => {
             ui.success(&format!(
                 "Review complete in {:.1}s",
@@ -166,7 +168,11 @@ async fn main() -> Result<()> {
             ui.error(&format!("{:#}", e));
             Err(e)
         }
-    }
+    };
+
+    nakama_update::maybe_show_update(&ui, update_rx);
+
+    final_result
 }
 
 // ---------------------------------------------------------------------------

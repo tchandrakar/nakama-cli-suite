@@ -12,6 +12,7 @@ pub struct Config {
     pub ui: UiConfig,
     pub audit: AuditConfig,
     pub ipc: IpcConfig,
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -94,6 +95,13 @@ pub struct IpcConfig {
     pub trace_propagation: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdatesConfig {
+    pub enabled: bool,
+    pub check_interval_hours: u64,
+}
+
 // --- Defaults ---
 
 impl Default for Config {
@@ -104,6 +112,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             audit: AuditConfig::default(),
             ipc: IpcConfig::default(),
+            updates: UpdatesConfig::default(),
         }
     }
 }
@@ -208,6 +217,15 @@ impl Default for IpcConfig {
         Self {
             schema_validation: true,
             trace_propagation: true,
+        }
+    }
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            check_interval_hours: 24,
         }
     }
 }

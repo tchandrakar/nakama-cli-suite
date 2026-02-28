@@ -74,6 +74,8 @@ async fn main() -> Result<()> {
     let _log_guard = init_logging(TOOL_NAME, &config.logging)?;
     let ui = NakamaUI::from_config(&config);
 
+    let update_rx = nakama_update::spawn_check(&config.updates, env!("CARGO_PKG_VERSION"));
+
     let cli = Cli::parse();
 
     let result = match cli.command {
@@ -89,6 +91,8 @@ async fn main() -> Result<()> {
     if let Err(e) = &result {
         ui.error(&format!("{:#}", e));
     }
+
+    nakama_update::maybe_show_update(&ui, update_rx);
 
     result
 }

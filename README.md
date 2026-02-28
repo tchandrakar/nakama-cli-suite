@@ -38,6 +38,58 @@ nakama-cli-suite/
 └── shared/            # Shared libraries and utilities
 ```
 
+## Installation
+
+### Quick Install (Pre-built Binaries)
+
+No Rust toolchain required. Downloads pre-built binaries from the latest GitHub release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tchandrakar/nakama-cli-suite/main/install-release.sh | bash
+```
+
+Supports: Linux (x86_64), macOS (x86_64, Apple Silicon).
+
+### Build from Source
+
+Requires Rust >= 1.75:
+
+```bash
+git clone https://github.com/tchandrakar/nakama-cli-suite.git
+cd nakama-cli-suite
+./install.sh
+```
+
+This builds all 11 tools in release mode and installs them to `~/.cargo/bin/`.
+
+### Configuration
+
+After installation, edit `~/.nakama/config.toml` to set your AI provider and API key:
+
+```toml
+[ai]
+default_provider = "anthropic"  # or: openai, google, ollama
+```
+
+Store your API key securely:
+
+```bash
+# Via environment variable
+export ANTHROPIC_API_KEY="your-key"
+
+# Or via the vault (OS keychain)
+nakama vault store nakama anthropic_api_key your-key
+```
+
+### Auto-Update
+
+All tools automatically check for new releases once every 24 hours. When a new version is available, you'll see a notice after the command finishes. To disable:
+
+```toml
+[updates]
+enabled = false
+```
+
 ## Architecture
 
 Each tool is a standalone CLI binary built in its own directory. They share common libraries from `shared/` for configuration, LLM provider abstraction, and output formatting.

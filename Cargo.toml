@@ -8,6 +8,7 @@ members = [
     "shared/nakama-audit",
     "shared/nakama-ai",
     "shared/nakama-ipc",
+    "shared/nakama-update",
     "zangetsu",
     "shinigami",
     "jogan",
@@ -86,6 +87,9 @@ dirs = "6"
 # Git
 git2 = "0.19"
 
+# Semver
+semver = "1"
+
 # Internal crates
 nakama-core = { path = "shared/nakama-core" }
 nakama-vault = { path = "shared/nakama-vault" }
@@ -94,3 +98,4 @@ nakama-log = { path = "shared/nakama-log" }
 nakama-audit = { path = "shared/nakama-audit" }
 nakama-ai = { path = "shared/nakama-ai" }
 nakama-ipc = { path = "shared/nakama-ipc" }
+nakama-update = { path = "shared/nakama-update" }

@@ -122,6 +122,10 @@ verbosity = "normal"
 [audit]
 enabled = true
 retention_days = 90
+
+[updates]
+enabled = true
+check_interval_hours = 24
 TOML
     chmod 600 "${HOME}/.nakama/config.toml"
     echo ""
