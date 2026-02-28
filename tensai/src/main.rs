@@ -1,7 +1,17 @@
+mod ai_helper;
+mod brief;
+mod focus;
+mod git_info;
+mod plan;
+mod review_day;
+mod standup;
+mod status;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use nakama_core::Config;
 use nakama_log::init_logging;
+use nakama_ui::NakamaUI;
 
 const TOOL_NAME: &str = "tensai";
 
@@ -15,22 +25,22 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Generate your morning dev briefing (PRs, issues, deployments, etc.)
+    /// Generate your morning dev briefing
     Brief,
 
-    /// Generate a standup summary from your recent activity
+    /// Generate a standup summary from recent activity
     Standup,
 
-    /// Plan your day based on priorities and deadlines
+    /// Plan your day based on priorities
     Plan,
 
-    /// Show current status across all connected services
+    /// Show current status across git and services
     Status,
 
-    /// Review your day's accomplishments and pending items
+    /// Review your day's accomplishments
     Review,
 
-    /// Enter focus mode -- minimize distractions and track deep work
+    /// Enter focus mode with a Pomodoro timer
     Focus,
 }
 
@@ -38,30 +48,22 @@ enum Commands {
 async fn main() -> Result<()> {
     let config = Config::load(TOOL_NAME).unwrap_or_default();
     let _log_guard = init_logging(TOOL_NAME, &config.logging)?;
-
-    println!("{} v{}", TOOL_NAME, env!("CARGO_PKG_VERSION"));
+    let ui = NakamaUI::from_config(&config);
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Brief => {
-            println!("[brief] Coming soon: morning dev briefing");
-        }
-        Commands::Standup => {
-            println!("[standup] Coming soon: standup summary generation");
-        }
-        Commands::Plan => {
-            println!("[plan] Coming soon: AI-powered day planning");
-        }
-        Commands::Status => {
-            println!("[status] Coming soon: cross-service status dashboard");
-        }
-        Commands::Review => {
-            println!("[review] Coming soon: end-of-day review");
-        }
-        Commands::Focus => {
-            println!("[focus] Coming soon: deep work focus mode");
-        }
+    let result = match cli.command {
+        Commands::Brief => brief::run(&config, &ui).await,
+        Commands::Standup => standup::run(&config, &ui).await,
+        Commands::Plan => plan::run(&config, &ui).await,
+        Commands::Status => status::run(&config, &ui).await,
+        Commands::Review => review_day::run(&config, &ui).await,
+        Commands::Focus => focus::run(&config, &ui).await,
+    };
+
+    if let Err(e) = result {
+        ui.error(&format!("{}", e));
+        std::process::exit(1);
     }
 
     Ok(())
