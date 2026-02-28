@@ -1,7 +1,16 @@
+mod ai_helper;
+mod analyze;
+mod correlate;
+mod parser;
+mod search;
+mod stats;
+mod watch;
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use nakama_core::Config;
 use nakama_log::init_logging;
+use nakama_ui::NakamaUI;
 
 const TOOL_NAME: &str = "sharingan";
 
@@ -15,9 +24,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Tail a log source with AI-powered annotations
+    /// Tail a log file with color-highlighted errors and warnings
     Tail {
-        /// The log source to tail (file path, service name, or URL)
+        /// Path to the log file to tail
         #[arg()]
         source: String,
     },
@@ -54,9 +63,9 @@ enum Commands {
         source: String,
     },
 
-    /// Filter logs using a natural-language query
+    /// Filter logs using a regex pattern with AI-powered context
     Filter {
-        /// Natural-language filter query
+        /// Regex pattern to search for
         #[arg()]
         query: String,
 
@@ -65,7 +74,7 @@ enum Commands {
         source: String,
     },
 
-    /// Generate a summary of a log source
+    /// Generate a summary of a log source with statistics
     Summary {
         /// The log source to summarize
         #[arg()]
@@ -77,42 +86,28 @@ enum Commands {
 async fn main() -> Result<()> {
     let config = Config::load(TOOL_NAME).unwrap_or_default();
     let _log_guard = init_logging(TOOL_NAME, &config.logging)?;
-
-    println!("{} v{}", TOOL_NAME, env!("CARGO_PKG_VERSION"));
+    let ui = NakamaUI::from_config(&config);
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Tail { source } => {
-            println!("[tail] Coming soon: AI-annotated log tailing");
-            println!("  Source: {}", source);
-        }
-        Commands::Explain { logfile } => {
-            println!("[explain] Coming soon: log file explanation");
-            println!("  Logfile: {}", logfile);
-        }
-        Commands::Scan { logfile } => {
-            println!("[scan] Coming soon: log pattern scanner");
-            println!("  Logfile: {}", logfile);
-        }
+    let result = match cli.command {
+        Commands::Tail { source } => watch::run(&config, &ui, &source).await,
+        Commands::Explain { logfile } => analyze::run(&config, &ui, &logfile).await,
+        Commands::Scan { logfile } => stats::run(&config, &ui, &logfile).await,
         Commands::Correlate { source1, source2 } => {
-            println!("[correlate] Coming soon: cross-source log correlation");
-            println!("  Source 1: {}", source1);
-            println!("  Source 2: {}", source2);
+            correlate::run(&config, &ui, &source1, &source2).await
         }
+        Commands::Filter { query, source } => search::run(&config, &ui, &query, &source).await,
+        Commands::Summary { source } => stats::run(&config, &ui, &source).await,
         Commands::Predict { source } => {
-            println!("[predict] Coming soon: predictive log analysis");
-            println!("  Source: {}", source);
+            println!("[predict] Coming soon: predictive log analysis for {}", source);
+            Ok(())
         }
-        Commands::Filter { query, source } => {
-            println!("[filter] Coming soon: natural-language log filtering");
-            println!("  Query: {}", query);
-            println!("  Source: {}", source);
-        }
-        Commands::Summary { source } => {
-            println!("[summary] Coming soon: log source summary");
-            println!("  Source: {}", source);
-        }
+    };
+
+    if let Err(e) = result {
+        ui.error(&format!("{}", e));
+        std::process::exit(1);
     }
 
     Ok(())
