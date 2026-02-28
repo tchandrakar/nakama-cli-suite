@@ -1,0 +1,15 @@
+[package]
+name = "nakama-log"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Structured logging for the Nakama CLI Suite"
+
+[dependencies]
+nakama-core = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
