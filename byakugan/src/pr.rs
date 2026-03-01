@@ -1,40 +1,103 @@
-//! GitHub PR fetching via the `gh` CLI.
-//!
-//! Shells out to the GitHub CLI (`gh`) to retrieve PR metadata and diffs.
-//! This avoids hard-coding GitHub API tokens and leverages the user's
-//! existing `gh auth` session.
+//! PR/MR fetching — uses PlatformAdapter with `gh` CLI fallback.
 
+use crate::platform::{self, Platform, PlatformAdapter};
 use anyhow::{Context, Result};
+use nakama_core::config::PlatformsConfig;
 use std::process::Command;
 
-/// Metadata and diff for a GitHub pull request.
+/// Metadata and diff for a pull/merge request.
 pub struct PrData {
-    /// PR number.
     pub number: u64,
-    /// PR title.
     pub title: String,
-    /// PR author login.
     pub author: String,
-    /// PR base branch (e.g., "main").
     pub base_branch: String,
-    /// PR head branch (e.g., "feature/foo").
     pub head_branch: String,
-    /// PR body/description.
     pub body: String,
-    /// The unified diff of the PR.
     pub diff: String,
-    /// Number of changed files.
     pub changed_files: usize,
 }
 
-/// Fetch a GitHub PR by number using the `gh` CLI.
-///
-/// Requires `gh` to be installed and authenticated (`gh auth login`).
-pub fn fetch_pr(pr_number: u64) -> Result<PrData> {
-    // Verify gh is available.
+/// Fetch a PR/MR using the platform adapter, with `gh` CLI fallback for GitHub.
+pub async fn fetch_pr(
+    pr_number: u64,
+    platforms_config: &PlatformsConfig,
+    platform_name: Option<&str>,
+    owner: Option<&str>,
+    repo: Option<&str>,
+) -> Result<PrData> {
+    // Determine platform.
+    let plat = if let Some(name) = platform_name {
+        Platform::from_str(name)?
+    } else {
+        platform::detect_platform_from_remote().unwrap_or(Platform::GitHub)
+    };
+
+    // Determine owner/repo.
+    let (resolved_owner, resolved_repo) = if let (Some(o), Some(r)) = (owner, repo) {
+        (o.to_string(), r.to_string())
+    } else {
+        platform::parse_owner_repo_from_remote()
+            .unwrap_or_else(|_| ("".to_string(), "".to_string()))
+    };
+
+    // Try adapter first if we have owner/repo.
+    if !resolved_owner.is_empty() && !resolved_repo.is_empty() {
+        if let Ok(adapter) = platform::create_adapter(plat, platforms_config) {
+            return fetch_via_adapter(
+                adapter.as_ref(),
+                &resolved_owner,
+                &resolved_repo,
+                pr_number,
+            )
+            .await;
+        }
+    }
+
+    // Fallback to gh CLI for GitHub.
+    if plat == Platform::GitHub {
+        return fetch_pr_gh(pr_number);
+    }
+
+    anyhow::bail!(
+        "Could not fetch PR #{} from {}. Configure a token or use --owner/--repo flags.",
+        pr_number,
+        plat
+    )
+}
+
+/// Fetch PR via a PlatformAdapter.
+async fn fetch_via_adapter(
+    adapter: &dyn PlatformAdapter,
+    owner: &str,
+    repo: &str,
+    number: u64,
+) -> Result<PrData> {
+    let pr = adapter.get_pull_request(owner, repo, number).await?;
+    let diff = adapter.get_pull_request_diff(owner, repo, number).await?;
+
+    if diff.trim().is_empty() {
+        anyhow::bail!("PR/MR #{} has an empty diff.", number);
+    }
+
+    // Estimate changed files from diff.
+    let changed_files = diff.lines().filter(|l| l.starts_with("diff --git") || l.starts_with("---")).count() / 2;
+
+    Ok(PrData {
+        number: pr.number,
+        title: pr.title,
+        author: pr.author,
+        base_branch: pr.base_branch,
+        head_branch: pr.head_branch,
+        body: pr.body,
+        diff,
+        changed_files: changed_files.max(1),
+    })
+}
+
+/// Fetch a GitHub PR using the `gh` CLI (legacy fallback).
+fn fetch_pr_gh(pr_number: u64) -> Result<PrData> {
     ensure_gh_installed()?;
 
-    // Fetch PR metadata as JSON.
     let meta_output = Command::new("gh")
         .args([
             "pr",
@@ -78,7 +141,6 @@ pub fn fetch_pr(pr_number: u64) -> Result<PrData> {
     let body = meta_json["body"].as_str().unwrap_or("").to_string();
     let changed_files = meta_json["changedFiles"].as_u64().unwrap_or(0) as usize;
 
-    // Fetch the PR diff.
     let diff_output = Command::new("gh")
         .args(["pr", "diff", &pr_number.to_string()])
         .output()

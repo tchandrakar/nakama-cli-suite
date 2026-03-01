@@ -23,7 +23,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Tishant Chandrakar <tchandrakar@mt.iitr.ac.in>"]
 license = "MIT"
@@ -74,6 +74,12 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Regex
 regex = "1"
+
+# Async traits
+async-trait = "0.1"
+
+# Glob pattern matching
+glob = "0.3"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }

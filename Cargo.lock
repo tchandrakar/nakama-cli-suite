@@ -202,20 +202,26 @@ checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
 name = "byakugan"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "clap",
+ "clap_complete",
  "git2",
+ "glob",
  "nakama-ai",
  "nakama-audit",
  "nakama-core",
+ "nakama-ipc",
  "nakama-log",
  "nakama-ui",
  "nakama-update",
  "nakama-vault",
  "openssl",
+ "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
@@ -296,6 +302,15 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.5.66"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c757a3b7e39161a4e56f9365141ada2a6c915a8622c408ab6bb4b5d047371031"
+dependencies = [
+ "clap",
 ]
 
 [[package]]
@@ -628,7 +643,7 @@ dependencies = [
 
 [[package]]
 name = "gate"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -720,6 +735,12 @@ dependencies = [
  "openssl-sys",
  "url",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "hashbrown"
@@ -1073,7 +1094,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itachi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1109,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "jogan"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1138,7 +1159,7 @@ dependencies = [
 
 [[package]]
 name = "kami"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1303,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "mugen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1321,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-ai"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "nakama-core",
@@ -1335,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-audit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "nakama-core",
@@ -1349,7 +1370,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1364,7 +1385,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-ipc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "nakama-core",
@@ -1374,7 +1395,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-log"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "nakama-core",
@@ -1386,7 +1407,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-ui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "comfy-table",
  "crossterm 0.28.1",
@@ -1397,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-update"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -1412,7 +1433,7 @@ dependencies = [
 
 [[package]]
 name = "nakama-vault"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2013,7 +2034,7 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "senku"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2116,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "sharingan"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2138,7 +2159,7 @@ dependencies = [
 
 [[package]]
 name = "shinigami"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2287,7 +2308,7 @@ dependencies = [
 
 [[package]]
 name = "tensai"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3261,7 +3282,7 @@ dependencies = [
 
 [[package]]
 name = "zangetsu"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",

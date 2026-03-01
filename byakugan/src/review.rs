@@ -23,6 +23,18 @@ pub async fn run_review(
     diff: &str,
     context_label: &str,
 ) -> Result<Vec<PassResult>> {
+    run_review_with_passes(ui, provider, model, diff, context_label, &[]).await
+}
+
+/// Run review with configurable passes.
+pub async fn run_review_with_passes(
+    ui: &NakamaUI,
+    provider: &dyn AiProvider,
+    model: &str,
+    diff: &str,
+    context_label: &str,
+    pass_names: &[String],
+) -> Result<Vec<PassResult>> {
     let truncated_diff = git::truncate_diff(diff, MAX_DIFF_CHARS);
 
     ui.panel(
@@ -41,10 +53,10 @@ pub async fn run_review(
         ),
     );
 
-    let passes = ReviewPass::all();
+    let passes = ReviewPass::from_names(pass_names);
     let mut results: Vec<PassResult> = Vec::with_capacity(passes.len());
 
-    for &pass in passes {
+    for &pass in &passes {
         let spinner = ui.step_start(&format!("Running {} pass...", pass.label()));
 
         let start = Instant::now();

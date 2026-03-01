@@ -134,6 +134,38 @@ impl ReviewPass {
         }
     }
 
+    /// Create a ReviewPass from a string name.
+    pub fn from_name(name: &str) -> Option<ReviewPass> {
+        match name.to_lowercase().as_str() {
+            "security" => Some(ReviewPass::Security),
+            "performance" | "perf" => Some(ReviewPass::Performance),
+            "style" => Some(ReviewPass::Style),
+            "logic" => Some(ReviewPass::Logic),
+            "summary" => Some(ReviewPass::Summary),
+            _ => None,
+        }
+    }
+
+    /// Return passes matching the given names. Falls back to all passes if empty.
+    pub fn from_names(names: &[String]) -> Vec<ReviewPass> {
+        if names.is_empty() {
+            return ReviewPass::all().to_vec();
+        }
+        let mut passes = Vec::new();
+        for name in names {
+            if let Some(pass) = ReviewPass::from_name(name) {
+                if !passes.contains(&pass) {
+                    passes.push(pass);
+                }
+            }
+        }
+        if passes.is_empty() {
+            ReviewPass::all().to_vec()
+        } else {
+            passes
+        }
+    }
+
     /// A human-readable label for display in tables and panels.
     pub fn label(&self) -> &'static str {
         match self {

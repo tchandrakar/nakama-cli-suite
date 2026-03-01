@@ -18,8 +18,14 @@ nakama-ai = { workspace = true }
 nakama-log = { workspace = true }
 nakama-audit = { workspace = true }
 nakama-vault = { workspace = true }
+nakama-ipc = { workspace = true }
 clap = { workspace = true }
+clap_complete = "4"
 tokio = { workspace = true }
+reqwest = { workspace = true }
+async-trait = { workspace = true }
+regex = { workspace = true }
+glob = { workspace = true }
 anyhow = "1"
 git2 = { workspace = true }
 openssl = { workspace = true }

@@ -13,6 +13,82 @@ pub struct Config {
     pub audit: AuditConfig,
     pub ipc: IpcConfig,
     pub updates: UpdatesConfig,
+    pub platforms: PlatformsConfig,
+    pub byakugan: ByakuganConfig,
+}
+
+// ---------------------------------------------------------------------------
+// Platform configurations (shared across tools)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlatformsConfig {
+    pub github: GitHubPlatformConfig,
+    pub gitlab: GitLabPlatformConfig,
+    pub bitbucket: BitbucketPlatformConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GitHubPlatformConfig {
+    pub token: Option<String>,
+    pub api_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GitLabPlatformConfig {
+    pub token: Option<String>,
+    pub api_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BitbucketPlatformConfig {
+    pub username: Option<String>,
+    pub app_password: Option<String>,
+    pub api_url: String,
+}
+
+// ---------------------------------------------------------------------------
+// Byakugan-specific configuration
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ByakuganConfig {
+    pub passes: Vec<String>,
+    pub max_comments: usize,
+    pub severity_threshold: String,
+    pub auto_post_comments: bool,
+    pub watch: ByakuganWatchConfig,
+    pub rules: Vec<ByakuganRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ByakuganWatchConfig {
+    pub poll_interval_seconds: u64,
+    pub auto_review: bool,
+    pub notify: bool,
+    pub repos: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ByakuganRule {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default = "default_rule_severity")]
+    pub severity: String,
+    pub pattern: String,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+}
+
+fn default_rule_severity() -> String {
+    "medium".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +189,76 @@ impl Default for Config {
             audit: AuditConfig::default(),
             ipc: IpcConfig::default(),
             updates: UpdatesConfig::default(),
+            platforms: PlatformsConfig::default(),
+            byakugan: ByakuganConfig::default(),
+        }
+    }
+}
+
+impl Default for PlatformsConfig {
+    fn default() -> Self {
+        Self {
+            github: GitHubPlatformConfig::default(),
+            gitlab: GitLabPlatformConfig::default(),
+            bitbucket: BitbucketPlatformConfig::default(),
+        }
+    }
+}
+
+impl Default for GitHubPlatformConfig {
+    fn default() -> Self {
+        Self {
+            token: None,
+            api_url: "https://api.github.com".to_string(),
+        }
+    }
+}
+
+impl Default for GitLabPlatformConfig {
+    fn default() -> Self {
+        Self {
+            token: None,
+            api_url: "https://gitlab.com/api/v4".to_string(),
+        }
+    }
+}
+
+impl Default for BitbucketPlatformConfig {
+    fn default() -> Self {
+        Self {
+            username: None,
+            app_password: None,
+            api_url: "https://api.bitbucket.org/2.0".to_string(),
+        }
+    }
+}
+
+impl Default for ByakuganConfig {
+    fn default() -> Self {
+        Self {
+            passes: vec![
+                "security".to_string(),
+                "performance".to_string(),
+                "style".to_string(),
+                "logic".to_string(),
+                "summary".to_string(),
+            ],
+            max_comments: 25,
+            severity_threshold: "low".to_string(),
+            auto_post_comments: false,
+            watch: ByakuganWatchConfig::default(),
+            rules: Vec::new(),
+        }
+    }
+}
+
+impl Default for ByakuganWatchConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval_seconds: 300,
+            auto_review: false,
+            notify: true,
+            repos: Vec::new(),
         }
     }
 }
