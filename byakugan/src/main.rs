@@ -665,9 +665,9 @@ fn get_api_key(provider: Provider) -> Result<String> {
     }
 
     let (service, env_var) = match provider {
-        Provider::Anthropic => ("anthropic", "ANTHROPIC_API_KEY"),
-        Provider::OpenAI => ("openai", "OPENAI_API_KEY"),
-        Provider::Google => ("google", "GOOGLE_API_KEY"),
+        Provider::Anthropic => ("anthropic", "NAKAMA_ANTHROPIC_API_KEY"),
+        Provider::OpenAI => ("openai", "NAKAMA_OPENAI_API_KEY"),
+        Provider::Google => ("google", "NAKAMA_GOOGLE_API_KEY"),
         Provider::Ollama => unreachable!(),
     };
 
