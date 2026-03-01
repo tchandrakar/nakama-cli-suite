@@ -65,7 +65,7 @@ pub async fn run(config: &Config, ui: &NakamaUI) -> Result<()> {
     }
 
     // 2. Truncate diff if too large
-    let diff_for_ai = git::truncate_diff(&diff, MAX_DIFF_CHARS);
+    let diff_for_ai = nakama_core::diff::compress_diff(&diff, MAX_DIFF_CHARS);
 
     // 3. Build AI provider and request commit message
     let spinner = ui.step_start("Generating commit message...");

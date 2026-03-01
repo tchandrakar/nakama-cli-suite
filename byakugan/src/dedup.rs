@@ -192,16 +192,38 @@ fn severity_score(s: Severity) -> f64 {
     }
 }
 
+/// Known source-code file extensions for simple filename matching.
+const SOURCE_EXTENSIONS: &[&str] = &[
+    ".java", ".ts", ".tsx", ".js", ".jsx", ".rs", ".py", ".go", ".rb", ".cs",
+    ".cpp", ".c", ".h", ".hpp", ".kt", ".swift", ".scala", ".php", ".vue",
+    ".svelte", ".yaml", ".yml", ".toml", ".json", ".xml", ".sql", ".sh",
+    ".tf", ".proto", ".graphql", ".css", ".scss", ".html",
+];
+
 fn extract_file_reference(content: &str) -> Option<String> {
     // Look for file path patterns in the content.
     for line in content.lines() {
         let trimmed = line.trim();
-        // Match patterns like "src/main.rs" or "file: path/to/file"
+
+        // First try: path with / and . (e.g., "src/main.rs", "path/to/file.java")
         if trimmed.contains('/') && trimmed.contains('.') {
             for word in trimmed.split_whitespace() {
                 let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-');
                 if clean.contains('/') && clean.contains('.') && clean.len() > 3 {
                     return Some(clean.to_string());
+                }
+            }
+        }
+
+        // Second try: simple filename with a known extension (e.g., "AISettingsController.java")
+        for word in trimmed.split_whitespace() {
+            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '_' && c != '-');
+            if clean.len() > 3 && SOURCE_EXTENSIONS.iter().any(|ext| clean.ends_with(ext)) {
+                // Ensure it looks like a filename (has at least one char before the extension)
+                if let Some(dot_pos) = clean.rfind('.') {
+                    if dot_pos > 0 {
+                        return Some(clean.to_string());
+                    }
                 }
             }
         }

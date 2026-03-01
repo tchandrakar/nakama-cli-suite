@@ -4,6 +4,7 @@
 //! specialized system prompt that instructs the AI model to focus on that
 //! dimension alone.
 
+use nakama_core::config::ByakuganPromptsConfig;
 use std::fmt;
 
 /// The different review passes that Byakugan runs against a diff.
@@ -131,6 +132,28 @@ impl ReviewPass {
                  Format merge readiness as: Merge: READY|NEEDS_CHANGES|BLOCK\n\n\
                  Be constructive and balanced. Acknowledge what was done well."
             }
+        }
+    }
+
+    /// Resolve the system prompt, using config overrides if present.
+    ///
+    /// If the config has a custom prompt for this pass, that is used; otherwise
+    /// the hardcoded default is used. In either case, `preamble` (if set) is
+    /// prepended.
+    pub fn system_prompt_with_config(&self, prompts: &ByakuganPromptsConfig) -> String {
+        let override_prompt = match self {
+            ReviewPass::Security => prompts.security.as_deref(),
+            ReviewPass::Performance => prompts.performance.as_deref(),
+            ReviewPass::Style => prompts.style.as_deref(),
+            ReviewPass::Logic => prompts.logic.as_deref(),
+            ReviewPass::Summary => prompts.summary.as_deref(),
+        };
+
+        let base = override_prompt.unwrap_or_else(|| self.system_prompt());
+
+        match &prompts.preamble {
+            Some(preamble) => format!("{}\n\n{}", preamble, base),
+            None => base.to_string(),
         }
     }
 

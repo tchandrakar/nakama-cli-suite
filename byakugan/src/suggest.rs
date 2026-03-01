@@ -55,7 +55,7 @@ pub async fn suggest_improvements(
         }
     };
 
-    let truncated = git::truncate_diff(&diff, MAX_DIFF_CHARS);
+    let truncated = nakama_core::diff::compress_diff(&diff, MAX_DIFF_CHARS);
 
     let ai_spinner = ui.step_start("Generating improvement suggestions...");
 

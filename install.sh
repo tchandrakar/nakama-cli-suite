@@ -108,20 +108,117 @@ if [ ! -f "${HOME}/.nakama/config.toml" ]; then
 # Nakama CLI Suite — Global Configuration
 # Made by Tishant Chandrakar
 #
-# AI Provider: anthropic | openai | google | ollama
+# Full reference: https://github.com/tchandrakar/nakama-cli-suite#configuration
+
+# ---------------------------------------------------------------------------
+# AI Provider (anthropic | openai | google | ollama)
+# ---------------------------------------------------------------------------
 [ai]
 default_provider = "anthropic"
 
+# [ai.anthropic]
+# model_fast = "claude-haiku-4-5-20251001"
+# model_balanced = "claude-sonnet-4-6"
+# model_powerful = "claude-opus-4-6"
+# base_url = "https://api.anthropic.com"    # override for proxy
+
+# [ai.openai]
+# model_fast = "gpt-4.1-nano"
+# model_balanced = "gpt-4.1-mini"
+# model_powerful = "gpt-4.1"
+
+# [ai.google]
+# model_fast = "gemini-2.5-flash"
+# model_balanced = "gemini-2.5-flash"
+# model_powerful = "gemini-2.5-pro"
+
+# [ai.ollama]
+# base_url = "http://localhost:11434"
+# model_fast = "llama3:8b"
+# model_balanced = "llama3:70b"
+
+# [ai.retry]
+# max_retries = 3
+# initial_backoff_ms = 1000
+# max_backoff_ms = 30000
+
+# Spending limits (optional)
+# [ai.budget]
+# weekly_limit_usd = 10.00
+# alert_threshold_percent = 80
+# hard_limit = true
+
+# ---------------------------------------------------------------------------
+# Platform tokens (for byakugan PR review, shinigami, etc.)
+# Alternatively, use env vars: NAKAMA_GITHUB_API_KEY, NAKAMA_BITBUCKET_API_KEY
+# ---------------------------------------------------------------------------
+# [platforms.github]
+# token = "ghp_..."
+# api_url = "https://api.github.com"
+
+# [platforms.gitlab]
+# token = "glpat-..."
+# api_url = "https://gitlab.com/api/v4"
+
+# [platforms.bitbucket]
+# username = "your-username"
+# app_password = "your-app-password"
+# api_url = "https://api.bitbucket.org/2.0"
+
+# ---------------------------------------------------------------------------
+# Byakugan (AI PR reviewer)
+# ---------------------------------------------------------------------------
+# [byakugan]
+# passes = ["security", "performance", "style", "logic", "summary"]
+# max_comments = 25
+# severity_threshold = "low"
+# auto_post_comments = false
+
+# Override AI prompts per pass, or add a project-specific preamble
+# [byakugan.prompts]
+# preamble = "This is a Java Spring Boot project. Focus on Spring patterns."
+# security = "Custom security review prompt..."
+# performance = "Custom performance review prompt..."
+# style = "Custom style review prompt..."
+# logic = "Custom logic review prompt..."
+# summary = "Custom summary review prompt..."
+
+# Custom regex rules (run via `byakugan scan`, no AI needed)
+# [[byakugan.rules]]
+# name = "No TODO comments"
+# description = "TODOs should be tracked as issues"
+# severity = "low"
+# pattern = "TODO|FIXME|HACK"
+# exclude = ["*.md"]
+
+# [byakugan.watch]
+# poll_interval_seconds = 300
+# auto_review = false
+# notify = true
+# repos = []
+
+# ---------------------------------------------------------------------------
+# Logging, UI, Audit, IPC, Updates
+# ---------------------------------------------------------------------------
 [logging]
 level = "info"
+# format = "json"
+# directory = "~/.nakama/logs"
 
 [ui]
 color = "auto"
 verbosity = "normal"
+# spinners = true
+# unicode = true
 
 [audit]
 enabled = true
 retention_days = 90
+# chain_verification = true
+
+# [ipc]
+# schema_validation = true
+# trace_propagation = true
 
 [updates]
 enabled = true
@@ -148,6 +245,6 @@ echo -e "    kami search \"kubernetes tips\"       # Web search"
 echo ""
 echo -e "  ${BOLD}Configure:${NC}"
 echo -e "    Edit ~/.nakama/config.toml to set your AI provider"
-echo -e "    Run: nakama auth add --service anthropic --key YOUR_KEY"
+echo -e "    Set your API key: export NAKAMA_ANTHROPIC_API_KEY=YOUR_KEY"
 echo ""
 echo -e "  ${PURPLE}Nakama CLI Suite — Made by Tishant Chandrakar${NC}"

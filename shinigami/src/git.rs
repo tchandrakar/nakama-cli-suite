@@ -337,19 +337,3 @@ fn diff_to_string(diff: &git2::Diff) -> Result<String> {
     Ok(text)
 }
 
-/// Truncate a diff string to fit within a token budget.
-///
-/// If the diff exceeds `max_chars`, keeps the first and last portions with
-/// a marker in between.
-pub fn truncate_diff(diff: &str, max_chars: usize) -> String {
-    if diff.len() <= max_chars {
-        return diff.to_string();
-    }
-
-    let keep = max_chars / 2;
-    let marker = "\n\n... [diff truncated for AI context window] ...\n\n";
-    let start = &diff[..keep];
-    let end = &diff[diff.len() - keep..];
-
-    format!("{}{}{}", start, marker, end)
-}

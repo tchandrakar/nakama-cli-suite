@@ -1,6 +1,6 @@
 //! GitHub platform adapter using the GitHub REST API v3.
 
-use super::{Comment, Platform, PlatformAdapter, PullRequest, Review, ReviewVerdict};
+use super::{Comment, InlinePostResult, Platform, PlatformAdapter, PullRequest, Review, ReviewVerdict};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, USER_AGENT};
@@ -254,5 +254,119 @@ impl PlatformAdapter for GitHubAdapter {
         }
 
         Ok(())
+    }
+
+    async fn post_inline_comments(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        comments: &[Comment],
+    ) -> InlinePostResult {
+        if comments.is_empty() {
+            return InlinePostResult {
+                posted: 0,
+                failed: 0,
+                errors: Vec::new(),
+            };
+        }
+
+        // Build batch review comments for the GitHub Reviews API.
+        let review_comments: Vec<serde_json::Value> = comments
+            .iter()
+            .filter_map(|c| {
+                let path = c.path.as_ref()?;
+                let line = c.line?;
+                Some(serde_json::json!({
+                    "path": path,
+                    "line": line,
+                    "body": c.body,
+                }))
+            })
+            .collect();
+
+        if review_comments.is_empty() {
+            return InlinePostResult {
+                posted: 0,
+                failed: 0,
+                errors: Vec::new(),
+            };
+        }
+
+        let total = review_comments.len();
+
+        // Try batch review API first (single request for all comments).
+        let url = format!(
+            "{}/repos/{}/{}/pulls/{}/reviews",
+            self.api_url, owner, repo, number
+        );
+
+        let batch_body = serde_json::json!({
+            "body": format!("*Byakugan: {} inline comment(s) on specific files*", total),
+            "event": "COMMENT",
+            "comments": review_comments,
+        });
+
+        let batch_result = self.client.post(&url).json(&batch_body).send().await;
+
+        match batch_result {
+            Ok(resp) if resp.status().is_success() => {
+                return InlinePostResult {
+                    posted: total,
+                    failed: 0,
+                    errors: Vec::new(),
+                };
+            }
+            _ => {
+                // Batch failed (e.g., invalid line positions). Fall back to individual comments.
+            }
+        }
+
+        // Fallback: post each comment individually as a pull request comment.
+        let mut result = InlinePostResult {
+            posted: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+
+        let single_url = format!(
+            "{}/repos/{}/{}/pulls/{}/comments",
+            self.api_url, owner, repo, number
+        );
+
+        for comment in comments {
+            let (path, line) = match (&comment.path, comment.line) {
+                (Some(p), Some(l)) => (p, l),
+                _ => continue,
+            };
+
+            let body = serde_json::json!({
+                "body": comment.body,
+                "path": path,
+                "line": line,
+                "side": "RIGHT",
+            });
+
+            match self.client.post(&single_url).json(&body).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    result.posted += 1;
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let err_body = resp.text().await.unwrap_or_default();
+                    result.failed += 1;
+                    result.errors.push(format!(
+                        "{}:{} — GitHub {} {}",
+                        path, line, status, err_body
+                    ));
+                }
+                Err(e) => {
+                    result.failed += 1;
+                    result.errors.push(format!("{}:{} — {}", path, line, e));
+                }
+            }
+        }
+
+        result
     }
 }

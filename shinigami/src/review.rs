@@ -58,7 +58,7 @@ pub async fn run(config: &Config, ui: &NakamaUI) -> Result<()> {
     let branch = git::current_branch(&repo).unwrap_or_else(|_| "unknown".to_string());
     ui.step_done(&format!("Reviewing uncommitted changes on branch '{}'", branch));
 
-    let diff_for_ai = git::truncate_diff(&diff, MAX_DIFF_CHARS);
+    let diff_for_ai = nakama_core::diff::compress_diff(&diff, MAX_DIFF_CHARS);
 
     let spinner = ui.step_start("AI is reviewing your changes...");
     let provider = ai_helper::build_provider(config, ModelTier::Balanced)?;
