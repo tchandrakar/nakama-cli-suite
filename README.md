@@ -64,21 +64,143 @@ This builds all 11 tools in release mode and installs them to `~/.cargo/bin/`.
 
 ### Configuration
 
-After installation, edit `~/.nakama/config.toml` to set your AI provider and API key:
+After installation, you need to configure two things: your **AI provider** and your **API keys/tokens**.
+
+#### 1. Choose Your AI Provider
+
+Edit `~/.nakama/config.toml` to set your default AI provider:
 
 ```toml
 [ai]
-default_provider = "anthropic"  # or: openai, google, ollama
+default_provider = "anthropic"  # anthropic | openai | google | ollama
 ```
 
-Store your API key securely:
+You can override per-command with `--ai-provider`:
 
 ```bash
-# Via environment variable
-export ANTHROPIC_API_KEY="your-key"
+zangetsu ask "find large files" --ai-provider=openai --ai-model=gpt-4.1
+```
 
-# Or via the vault (OS keychain)
-nakama vault store nakama anthropic_api_key your-key
+#### 2. Store API Keys
+
+API keys are managed by `nakama-vault`, which tries storage backends in priority order:
+
+##### Option A: OS Keychain (Recommended)
+
+The most secure option. Uses macOS Keychain, GNOME Keyring (Linux), or Windows Credential Manager:
+
+```bash
+# AI provider keys — store whichever provider(s) you use
+nakama-vault store anthropic api_key sk-ant-...
+nakama-vault store openai api_key sk-...
+nakama-vault store google api_key AIza...
+
+# Platform tokens — needed by tools that interact with code platforms
+nakama-vault store github api_key ghp_...       # byakugan, shinigami
+nakama-vault store gitlab api_key glpat-...     # byakugan
+nakama-vault store bitbucket api_key ...        # byakugan
+```
+
+##### Option B: Environment Variables (CI/CD or Fallback)
+
+When no keychain is available (e.g., CI/CD, containers, SSH sessions), set environment variables using the `NAKAMA_<SERVICE>_<KEY>` pattern:
+
+```bash
+# AI providers
+export NAKAMA_ANTHROPIC_API_KEY="sk-ant-..."
+export NAKAMA_OPENAI_API_KEY="sk-..."
+export NAKAMA_GOOGLE_API_KEY="AIza..."
+
+# Platform tokens
+export NAKAMA_GITHUB_API_KEY="ghp_..."
+export NAKAMA_GITLAB_API_KEY="glpat-..."
+export NAKAMA_BITBUCKET_API_KEY="..."
+```
+
+> A warning is logged when env vars are used instead of the keychain.
+
+##### Option C: Encrypted File Store (Automatic Fallback)
+
+If the OS keychain is unavailable, `nakama-vault` automatically falls back to an AES-256-GCM encrypted file store at `~/.nakama/vault/`. Key derivation uses Argon2id from a master password. No setup needed — it activates transparently.
+
+#### 3. Platform Tokens (Alternative)
+
+For GitHub, GitLab, and Bitbucket, you can also configure tokens directly in `~/.nakama/config.toml`:
+
+```toml
+[platforms.github]
+token = "ghp_..."
+api_url = "https://api.github.com"          # default; override for GitHub Enterprise
+
+[platforms.gitlab]
+token = "glpat-..."
+api_url = "https://gitlab.com/api/v4"       # default; override for self-hosted
+
+[platforms.bitbucket]
+username = "your-username"
+app_password = "..."
+api_url = "https://api.bitbucket.org/2.0"   # default; override for Data Center
+```
+
+> **Note:** AI provider API keys are **never** stored in config files — they must go through the vault (keychain or env vars).
+
+#### Credential Resolution Order
+
+```
+OS Keychain  →  Encrypted File Store  →  Environment Variables
+```
+
+For platform tokens specifically:
+
+```
+Vault (any backend)  →  config.toml [platforms.*] section
+```
+
+#### 4. Optional: AI Model Overrides
+
+Customize which models each provider uses per tier:
+
+```toml
+[ai.anthropic]
+model_fast = "claude-haiku-4-5-20251001"
+model_balanced = "claude-sonnet-4-6"
+model_powerful = "claude-opus-4-6"
+# base_url = "https://your-proxy.example.com"  # optional proxy
+
+[ai.openai]
+model_fast = "gpt-4.1-nano"
+model_balanced = "gpt-4.1-mini"
+model_powerful = "gpt-4.1"
+
+[ai.google]
+model_fast = "gemini-2.5-flash"
+model_balanced = "gemini-2.5-flash"
+model_powerful = "gemini-2.5-pro"
+
+[ai.ollama]
+base_url = "http://localhost:11434"     # no API key needed
+model_fast = "llama3:8b"
+model_balanced = "llama3:70b"
+```
+
+#### 5. Optional: Spending Limits
+
+Track and cap your AI API costs:
+
+```toml
+[ai.budget]
+weekly_limit_usd = 10.00
+alert_threshold_percent = 80
+hard_limit = true    # true = block requests at limit; false = warn only
+```
+
+#### 6. Optional: Per-Tool Overrides
+
+Any tool can override the global AI config in its own config file (e.g., `~/.nakama/byakugan/config.toml`):
+
+```toml
+[ai]
+default_provider = "openai"    # use OpenAI just for this tool
 ```
 
 ### Auto-Update
