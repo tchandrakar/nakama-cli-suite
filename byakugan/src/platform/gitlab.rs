@@ -1,6 +1,6 @@
 //! GitLab platform adapter using the GitLab REST API v4.
 
-use super::{Comment, Platform, PlatformAdapter, PullRequest, Review, ReviewVerdict};
+use super::{Comment, InlinePostResult, Platform, PlatformAdapter, PullRequest, Review, ReviewVerdict};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
@@ -277,5 +277,65 @@ impl PlatformAdapter for GitLabAdapter {
         }
 
         Ok(())
+    }
+
+    async fn post_inline_comments(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        comments: &[Comment],
+    ) -> InlinePostResult {
+        let project = Self::project_path(owner, repo);
+        let disc_url = format!(
+            "{}/projects/{}/merge_requests/{}/discussions",
+            self.api_url, project, number
+        );
+
+        let mut result = InlinePostResult {
+            posted: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+
+        for comment in comments {
+            let (path, line) = match (&comment.path, comment.line) {
+                (Some(p), Some(l)) => (p, l),
+                _ => continue,
+            };
+
+            let body = serde_json::json!({
+                "body": comment.body,
+                "position": {
+                    "position_type": "text",
+                    "new_path": path,
+                    "new_line": line,
+                    "base_sha": "",
+                    "head_sha": "",
+                    "start_sha": "",
+                }
+            });
+
+            match self.client.post(&disc_url).json(&body).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    result.posted += 1;
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let err_body = resp.text().await.unwrap_or_default();
+                    result.failed += 1;
+                    result.errors.push(format!(
+                        "{}:{} — GitLab {} {}",
+                        path, line, status, err_body
+                    ));
+                }
+                Err(e) => {
+                    result.failed += 1;
+                    result.errors.push(format!("{}:{} — {}", path, line, e));
+                }
+            }
+        }
+
+        result
     }
 }

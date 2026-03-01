@@ -1,4 +1,5 @@
 pub mod config;
+pub mod diff;
 pub mod error;
 pub mod trace;
 pub mod types;

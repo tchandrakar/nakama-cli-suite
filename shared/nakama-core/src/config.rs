@@ -64,6 +64,18 @@ pub struct ByakuganConfig {
     pub auto_post_comments: bool,
     pub watch: ByakuganWatchConfig,
     pub rules: Vec<ByakuganRule>,
+    pub prompts: ByakuganPromptsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ByakuganPromptsConfig {
+    pub preamble: Option<String>,
+    pub security: Option<String>,
+    pub performance: Option<String>,
+    pub style: Option<String>,
+    pub logic: Option<String>,
+    pub summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -248,6 +260,20 @@ impl Default for ByakuganConfig {
             auto_post_comments: false,
             watch: ByakuganWatchConfig::default(),
             rules: Vec::new(),
+            prompts: ByakuganPromptsConfig::default(),
+        }
+    }
+}
+
+impl Default for ByakuganPromptsConfig {
+    fn default() -> Self {
+        Self {
+            preamble: None,
+            security: None,
+            performance: None,
+            style: None,
+            logic: None,
+            summary: None,
         }
     }
 }

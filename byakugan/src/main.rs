@@ -72,10 +72,6 @@ struct Cli {
     #[arg(long)]
     repo: Option<String>,
 
-    /// Post results as comments/review to the PR/MR
-    #[arg(long)]
-    post: bool,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -85,11 +81,15 @@ enum Commands {
     /// Review the current branch's diff against main/master (multi-pass AI review)
     Review,
 
-    /// Fetch and review a PR/MR by number
+    /// Fetch and review a PR/MR by number or URL
     Pr {
-        /// The PR/MR number to review
+        /// PR/MR number or full URL (e.g. https://bitbucket.org/workspace/repo/pull-requests/123)
         #[arg()]
-        number: u64,
+        pr_ref: String,
+
+        /// Post results as a review comment on the PR/MR
+        #[arg(long)]
+        post: bool,
     },
 
     /// Review changes in a specific file
@@ -208,17 +208,17 @@ async fn main() -> Result<()> {
             .await;
             ("review", result)
         }
-        Commands::Pr { number } => {
+        Commands::Pr { ref pr_ref, post } => {
             let result = cmd_pr(
                 &ui,
                 ai_provider.as_ref().unwrap().as_ref(),
                 &model,
-                number,
+                pr_ref,
                 &config,
                 cli.platform.as_deref(),
                 cli.owner.as_deref(),
                 cli.repo.as_deref(),
-                cli.post,
+                post,
             )
             .await;
             ("pr", result)
@@ -376,6 +376,7 @@ async fn cmd_review(
         &branch_diff.diff_text,
         &context_label,
         &config.byakugan.passes,
+        &config.byakugan.prompts,
     )
     .await?;
 
@@ -400,27 +401,54 @@ async fn cmd_review(
     Ok(())
 }
 
-/// `byakugan pr <number>` — Fetch and review a PR/MR.
+/// `byakugan pr <number|url>` — Fetch and review a PR/MR.
 #[allow(clippy::too_many_arguments)]
 async fn cmd_pr(
     ui: &NakamaUI,
     provider: &dyn AiProvider,
     model: &str,
-    number: u64,
+    pr_ref: &str,
     config: &Config,
     platform_name: Option<&str>,
     owner: Option<&str>,
     repo: Option<&str>,
     post: bool,
 ) -> Result<()> {
+    // Resolve pr_ref: either a URL or a plain number.
+    let (number, resolved_platform, resolved_owner, resolved_repo) =
+        if pr_ref.starts_with("http://") || pr_ref.starts_with("https://") {
+            let parsed = platform::parse_pr_url(pr_ref)?;
+            (
+                parsed.number,
+                Some(parsed.platform.to_string()),
+                Some(parsed.owner),
+                Some(parsed.repo),
+            )
+        } else {
+            let n = pr_ref
+                .parse::<u64>()
+                .context("PR argument must be a number or a valid PR URL")?;
+            (n, None, None, None)
+        };
+
+    // CLI flags override URL-derived values.
+    let effective_platform = platform_name
+        .or(resolved_platform.as_deref());
+    let effective_owner = owner
+        .map(|s| s.to_string())
+        .or(resolved_owner);
+    let effective_repo = repo
+        .map(|s| s.to_string())
+        .or(resolved_repo);
+
     let spinner = ui.step_start(&format!("Fetching PR #{}...", number));
 
     let pr_data = pr::fetch_pr(
         number,
         &config.platforms,
-        platform_name,
-        owner,
-        repo,
+        effective_platform,
+        effective_owner.as_deref(),
+        effective_repo.as_deref(),
     )
     .await?;
 
@@ -444,6 +472,7 @@ async fn cmd_pr(
         &pr_data.diff,
         &context_label,
         &config.byakugan.passes,
+        &config.byakugan.prompts,
     )
     .await?;
 
@@ -461,52 +490,127 @@ async fn cmd_pr(
         ),
     );
 
-    // Post review if --post flag is set.
-    if post {
-        if let Ok(plat) = platform_name
-            .map(platform::Platform::from_str)
-            .unwrap_or_else(|| {
-                platform::detect_platform_from_remote()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot detect platform"))
-            })
-        {
-            if let Ok(adapter) = platform::create_adapter(plat, &config.platforms) {
-                let (resolved_owner, resolved_repo) = if let (Some(o), Some(r)) = (owner, repo) {
-                    (o.to_string(), r.to_string())
-                } else {
-                    platform::parse_owner_repo_from_remote()
-                        .unwrap_or(("".to_string(), "".to_string()))
-                };
+    // Post review if --post flag is set or auto_post_comments is enabled.
+    if post || config.byakugan.auto_post_comments {
+        // Resolve platform and adapter once — shared by both steps.
+        let posting_ctx: Result<(Box<dyn platform::PlatformAdapter>, String, String)> = (|| {
+            let plat = effective_platform
+                .map(platform::Platform::from_str)
+                .unwrap_or_else(|| {
+                    platform::detect_platform_from_remote()
+                        .ok_or_else(|| anyhow::anyhow!("Cannot detect platform"))
+                })
+                .context("Failed to resolve platform for posting")?;
 
-                if !resolved_owner.is_empty() {
-                    // Build review body from summary pass.
-                    let body = results
-                        .iter()
-                        .find(|r| r.pass == passes::ReviewPass::Summary)
-                        .map(|r| r.content.clone())
-                        .unwrap_or_else(|| "Review complete.".to_string());
+            let adapter = platform::create_adapter(plat, &config.platforms)
+                .context("Failed to create platform adapter for posting")?;
 
-                    let verdict = if stats.max_severity >= passes::Severity::High {
-                        platform::ReviewVerdict::RequestChanges
+            let (post_owner, post_repo) = if let (Some(ref o), Some(ref r)) =
+                (&effective_owner, &effective_repo)
+            {
+                (o.to_string(), r.to_string())
+            } else if let (Some(o), Some(r)) = (owner, repo) {
+                (o.to_string(), r.to_string())
+            } else {
+                platform::parse_owner_repo_from_remote()
+                    .context("Could not determine owner/repo for posting")?
+            };
+
+            if post_owner.is_empty() || post_repo.is_empty() {
+                anyhow::bail!(
+                    "Owner or repo is empty (owner={:?}, repo={:?}). \
+                     Use --owner and --repo flags or pass a full PR URL.",
+                    post_owner,
+                    post_repo,
+                );
+            }
+
+            Ok((adapter, post_owner, post_repo))
+        })();
+
+        match posting_ctx {
+            Ok((adapter, post_owner, post_repo)) => {
+                // Step 1 (MANDATORY): Post inline comments.
+                let inline_comments = review::extract_inline_comments(&results, &pr_data.diff);
+                let mut inline_posted = 0usize;
+
+                if !inline_comments.is_empty() {
+                    let inline_spinner = ui.step_start(&format!(
+                        "Posting {} inline comment(s)...",
+                        inline_comments.len()
+                    ));
+                    let inline_result = adapter
+                        .post_inline_comments(&post_owner, &post_repo, number, &inline_comments)
+                        .await;
+
+                    inline_posted = inline_result.posted;
+
+                    if inline_result.failed == 0 {
+                        inline_spinner.finish_with_success(&format!(
+                            "Posted {}/{} inline comment(s)",
+                            inline_result.posted,
+                            inline_comments.len()
+                        ));
                     } else {
-                        platform::ReviewVerdict::Comment
-                    };
-
-                    let review = platform::Review {
-                        body,
-                        verdict,
-                        comments: Vec::new(),
-                    };
-
-                    let spinner = ui.step_start("Posting review...");
-                    match adapter
-                        .post_review(&resolved_owner, &resolved_repo, number, &review)
-                        .await
-                    {
-                        Ok(_) => spinner.finish_with_success("Review posted successfully"),
-                        Err(e) => spinner.finish_with_error(&format!("Failed to post: {}", e)),
+                        inline_spinner.finish_with_error(&format!(
+                            "Posted {}/{} inline comment(s) ({} failed)",
+                            inline_result.posted,
+                            inline_comments.len(),
+                            inline_result.failed
+                        ));
+                        for err in &inline_result.errors {
+                            ui.warn(&format!("  Inline error: {}", err));
+                        }
                     }
                 }
+
+                // Step 2 (OPTIONAL): Post overview summary.
+                // Post summary if: Summary pass has content, or there were
+                // findings that didn't become inline comments.
+                let has_summary_content = results.iter().any(|r| {
+                    r.pass == passes::ReviewPass::Summary
+                        && r.finding_count > 0
+                        && !r.content.starts_with("Error:")
+                });
+                let non_inline_findings = stats.total_findings.saturating_sub(inline_posted);
+                let should_post_summary = has_summary_content || non_inline_findings > 0 || inline_posted == 0;
+
+                if should_post_summary {
+                    let body = review::build_summary_body(
+                        &results,
+                        inline_posted,
+                        model,
+                        &context_label,
+                    );
+
+                    // Always use COMMENT verdict to avoid own-PR REQUEST_CHANGES issue.
+                    let overview_spinner = ui.step_start(&format!(
+                        "Posting summary to {}/{} PR #{}...",
+                        post_owner, post_repo, number
+                    ));
+                    let overview = platform::Review {
+                        body,
+                        verdict: platform::ReviewVerdict::Comment,
+                        comments: Vec::new(),
+                    };
+                    match adapter
+                        .post_review(&post_owner, &post_repo, number, &overview)
+                        .await
+                    {
+                        Ok(_) => {
+                            overview_spinner.finish_with_success("Summary posted");
+                        }
+                        Err(e) => {
+                            overview_spinner.finish_with_error(&format!(
+                                "Failed to post summary: {}", e
+                            ));
+                            ui.warn(&format!("Summary posting failed: {:#}", e));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                ui.warn(&format!("Review posting failed: {:#}", e));
             }
         }
     }

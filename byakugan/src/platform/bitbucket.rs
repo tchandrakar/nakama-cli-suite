@@ -1,6 +1,6 @@
 //! Bitbucket platform adapter using the Bitbucket Cloud REST API 2.0.
 
-use super::{Comment, Platform, PlatformAdapter, PullRequest, Review, ReviewVerdict};
+use super::{Comment, InlinePostResult, Platform, PlatformAdapter, PullRequest, Review, ReviewVerdict};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
@@ -25,6 +25,30 @@ impl BitbucketAdapter {
             reqwest::header::AUTHORIZATION,
             HeaderValue::from_str(&format!("Basic {}", credentials))
                 .unwrap_or_else(|_| HeaderValue::from_static("Basic invalid")),
+        );
+
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .expect("Failed to build HTTP client");
+
+        Self {
+            client,
+            api_url: api_url.trim_end_matches('/').to_string(),
+        }
+    }
+
+    /// Create an adapter using a Bearer token (workspace/repository access token).
+    pub fn new_with_bearer_token(token: &str, api_url: &str) -> Self {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            USER_AGENT,
+            HeaderValue::from_static("byakugan/0.2.0"),
+        );
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", token))
+                .unwrap_or_else(|_| HeaderValue::from_static("Bearer invalid")),
         );
 
         let client = reqwest::Client::builder()
@@ -289,5 +313,62 @@ impl PlatformAdapter for BitbucketAdapter {
         }
 
         Ok(())
+    }
+
+    async fn post_inline_comments(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        comments: &[Comment],
+    ) -> InlinePostResult {
+        let url = format!(
+            "{}/repositories/{}/{}/pullrequests/{}/comments",
+            self.api_url, owner, repo, number
+        );
+
+        let mut result = InlinePostResult {
+            posted: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+
+        for comment in comments {
+            let (path, line) = match (&comment.path, comment.line) {
+                (Some(p), Some(l)) => (p, l),
+                _ => continue,
+            };
+
+            let body = serde_json::json!({
+                "content": {
+                    "raw": comment.body,
+                },
+                "inline": {
+                    "path": path,
+                    "to": line,
+                }
+            });
+
+            match self.client.post(&url).json(&body).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    result.posted += 1;
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let err_body = resp.text().await.unwrap_or_default();
+                    result.failed += 1;
+                    result.errors.push(format!(
+                        "{}:{} — Bitbucket {} {}",
+                        path, line, status, err_body
+                    ));
+                }
+                Err(e) => {
+                    result.failed += 1;
+                    result.errors.push(format!("{}:{} — {}", path, line, e));
+                }
+            }
+        }
+
+        result
     }
 }

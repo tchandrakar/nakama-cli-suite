@@ -216,26 +216,3 @@ fn diff_to_text(diff: &git2::Diff) -> Result<String> {
     Ok(output)
 }
 
-/// Truncate a diff to a maximum character count, preserving whole lines,
-/// and appending a truncation notice. This prevents sending excessively
-/// large diffs to the AI model.
-pub fn truncate_diff(diff: &str, max_chars: usize) -> String {
-    if diff.len() <= max_chars {
-        return diff.to_string();
-    }
-
-    let mut truncated = String::with_capacity(max_chars + 100);
-    let mut chars_remaining = max_chars;
-
-    for line in diff.lines() {
-        if line.len() + 1 > chars_remaining {
-            break;
-        }
-        truncated.push_str(line);
-        truncated.push('\n');
-        chars_remaining -= line.len() + 1;
-    }
-
-    truncated.push_str("\n... [diff truncated — too large for a single review pass] ...\n");
-    truncated
-}

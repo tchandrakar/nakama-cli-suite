@@ -16,7 +16,7 @@
 | Dev Briefing Dashboard | [tensai](./tensai/) | Kuroko no Basket | Daily developer briefing and task planning |
 | Test Generator | [mugen](./mugen/) | Samurai Champloo | AI test generation and mutation testing |
 | API Explorer | [gate](./gate/) | Steins;Gate | Interactive API exploration and testing |
-| PR Reviewer | [byakugan](./byakugan/) | Naruto | Platform-agnostic PR review (GitHub, GitLab, Bitbucket) |
+| PR Reviewer | [byakugan](./byakugan/) | Naruto | Multi-pass AI PR review with `--post` support (GitHub, GitLab, Bitbucket) |
 | Google/Gemini Search | [kami](./kami/) | Dragon Ball | Grounded search and research via Gemini |
 | Atlassian Hub | [itachi](./itachi/) | Naruto | Jira + Confluence cross-platform intelligence |
 
@@ -201,6 +201,30 @@ Any tool can override the global AI config in its own config file (e.g., `~/.nak
 ```toml
 [ai]
 default_provider = "openai"    # use OpenAI just for this tool
+```
+
+#### 7. Optional: Byakugan Review Configuration
+
+Customize byakugan's AI review behavior — auto-post reviews and override per-pass prompts:
+
+```toml
+[byakugan]
+auto_post_comments = true   # automatically post review comments on PRs
+
+[byakugan.prompts]
+preamble = "This is a Java Spring Boot project. Focus on Spring patterns."
+# Override individual pass prompts (optional — defaults are used if omitted):
+# security = "Custom security review prompt..."
+# performance = "Custom performance review prompt..."
+# style = "Custom style review prompt..."
+# logic = "Custom logic review prompt..."
+# summary = "Custom summary review prompt..."
+```
+
+Post a comprehensive AI review (all passes) as a single comment on a PR:
+
+```bash
+byakugan pr "https://bitbucket.org/workspace/repo/pull-requests/123" --post
 ```
 
 ### Auto-Update

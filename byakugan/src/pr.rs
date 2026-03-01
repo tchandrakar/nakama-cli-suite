@@ -55,7 +55,12 @@ pub async fn fetch_pr(
 
     // Fallback to gh CLI for GitHub.
     if plat == Platform::GitHub {
-        return fetch_pr_gh(pr_number);
+        let repo_flag = if !resolved_owner.is_empty() && !resolved_repo.is_empty() {
+            Some(format!("{}/{}", resolved_owner, resolved_repo))
+        } else {
+            None
+        };
+        return fetch_pr_gh(pr_number, repo_flag.as_deref());
     }
 
     anyhow::bail!(
@@ -95,17 +100,27 @@ async fn fetch_via_adapter(
 }
 
 /// Fetch a GitHub PR using the `gh` CLI (legacy fallback).
-fn fetch_pr_gh(pr_number: u64) -> Result<PrData> {
+///
+/// When `repo_slug` is `Some("owner/repo")`, the `--repo` flag is passed to
+/// `gh` so it targets the correct repository even when run from a different
+/// working directory.
+fn fetch_pr_gh(pr_number: u64, repo_slug: Option<&str>) -> Result<PrData> {
     ensure_gh_installed()?;
 
+    let mut meta_args = vec![
+        "pr".to_string(),
+        "view".to_string(),
+        pr_number.to_string(),
+        "--json".to_string(),
+        "number,title,author,baseRefName,headRefName,body,changedFiles".to_string(),
+    ];
+    if let Some(slug) = repo_slug {
+        meta_args.push("--repo".to_string());
+        meta_args.push(slug.to_string());
+    }
+
     let meta_output = Command::new("gh")
-        .args([
-            "pr",
-            "view",
-            &pr_number.to_string(),
-            "--json",
-            "number,title,author,baseRefName,headRefName,body,changedFiles",
-        ])
+        .args(&meta_args)
         .output()
         .context("Failed to execute `gh pr view`. Is `gh` installed and authenticated?")?;
 
@@ -141,8 +156,18 @@ fn fetch_pr_gh(pr_number: u64) -> Result<PrData> {
     let body = meta_json["body"].as_str().unwrap_or("").to_string();
     let changed_files = meta_json["changedFiles"].as_u64().unwrap_or(0) as usize;
 
+    let mut diff_args = vec![
+        "pr".to_string(),
+        "diff".to_string(),
+        pr_number.to_string(),
+    ];
+    if let Some(slug) = repo_slug {
+        diff_args.push("--repo".to_string());
+        diff_args.push(slug.to_string());
+    }
+
     let diff_output = Command::new("gh")
-        .args(["pr", "diff", &pr_number.to_string()])
+        .args(&diff_args)
         .output()
         .context("Failed to execute `gh pr diff`")?;
 

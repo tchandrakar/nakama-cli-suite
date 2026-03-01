@@ -4,11 +4,13 @@
 //! them for display. This module is provider-agnostic — it receives a
 //! `Box<dyn AiProvider>` and uses it for all passes.
 
-use crate::git;
+use crate::dedup;
 use crate::passes::{parse_findings, PassResult, ReviewPass, Severity};
+use crate::platform;
 use anyhow::{Context, Result};
 use nakama_ai::types::{CompletionRequest, Message};
 use nakama_ai::AiProvider;
+use nakama_core::config::ByakuganPromptsConfig;
 use nakama_ui::NakamaUI;
 use std::time::Instant;
 
@@ -23,10 +25,11 @@ pub async fn run_review(
     diff: &str,
     context_label: &str,
 ) -> Result<Vec<PassResult>> {
-    run_review_with_passes(ui, provider, model, diff, context_label, &[]).await
+    let default_prompts = ByakuganPromptsConfig::default();
+    run_review_with_passes(ui, provider, model, diff, context_label, &[], &default_prompts).await
 }
 
-/// Run review with configurable passes.
+/// Run review with configurable passes and prompt overrides.
 pub async fn run_review_with_passes(
     ui: &NakamaUI,
     provider: &dyn AiProvider,
@@ -34,8 +37,9 @@ pub async fn run_review_with_passes(
     diff: &str,
     context_label: &str,
     pass_names: &[String],
+    prompts: &ByakuganPromptsConfig,
 ) -> Result<Vec<PassResult>> {
-    let truncated_diff = git::truncate_diff(diff, MAX_DIFF_CHARS);
+    let truncated_diff = nakama_core::diff::compress_diff(diff, MAX_DIFF_CHARS);
 
     ui.panel(
         "Byakugan Review",
@@ -60,7 +64,7 @@ pub async fn run_review_with_passes(
         let spinner = ui.step_start(&format!("Running {} pass...", pass.label()));
 
         let start = Instant::now();
-        let result = run_single_pass(provider, model, &truncated_diff, pass).await;
+        let result = run_single_pass(provider, model, &truncated_diff, pass, prompts).await;
         let elapsed = start.elapsed();
 
         match result {
@@ -113,6 +117,7 @@ async fn run_single_pass(
     model: &str,
     diff: &str,
     pass: ReviewPass,
+    prompts: &ByakuganPromptsConfig,
 ) -> Result<PassResult> {
     let user_message = format!(
         "Please review the following code diff:\n\n```diff\n{}\n```",
@@ -120,7 +125,7 @@ async fn run_single_pass(
     );
 
     let request = CompletionRequest {
-        system_prompt: pass.system_prompt().to_string(),
+        system_prompt: pass.system_prompt_with_config(prompts),
         messages: vec![Message::user(user_message)],
         model: model.to_string(),
         max_tokens: 2048,
@@ -192,6 +197,266 @@ fn display_detailed_findings(ui: &NakamaUI, results: &[PassResult]) {
             );
         }
     }
+}
+
+/// Build a comprehensive markdown review body from all pass results.
+///
+/// This is intended for posting as a single PR comment that covers every pass,
+/// not just the summary.
+pub fn build_review_body(results: &[PassResult], model: &str, context_label: &str) -> String {
+    let stats = ReviewStats::from_results(results);
+    let version = env!("CARGO_PKG_VERSION");
+
+    let mut body = String::with_capacity(4096);
+
+    // Header
+    body.push_str(&format!(
+        "## Byakugan AI Review\n\n\
+         > **v{}** | model: `{}` | context: {}\n\n",
+        version, model, context_label,
+    ));
+
+    // Summary table
+    body.push_str("| Pass | Findings | Severity |\n|------|----------|----------|\n");
+    for r in results {
+        let findings = if r.finding_count == 0 {
+            "No issues".to_string()
+        } else {
+            format!("{} finding(s)", r.finding_count)
+        };
+        body.push_str(&format!(
+            "| {} | {} | {} |\n",
+            r.pass.label(),
+            findings,
+            r.severity.label(),
+        ));
+    }
+    body.push('\n');
+
+    // Overall verdict
+    let verdict = if stats.max_severity >= Severity::High {
+        "NEEDS CHANGES"
+    } else if stats.total_findings == 0 {
+        "LOOKS GOOD"
+    } else {
+        "MINOR CONCERNS"
+    };
+    body.push_str(&format!(
+        "**Overall: {} ({} finding(s), max severity: {})**\n\n---\n\n",
+        verdict, stats.total_findings, stats.max_severity,
+    ));
+
+    // Detailed findings per pass
+    for r in results {
+        // Always include Summary; skip other passes with 0 findings
+        if r.pass != ReviewPass::Summary && r.finding_count == 0 {
+            continue;
+        }
+        if r.content.starts_with("Error:") {
+            body.push_str(&format!("### {} (ERROR)\n\n{}\n\n", r.pass.label(), r.content));
+            continue;
+        }
+        body.push_str(&format!("### {} Review\n\n{}\n\n", r.pass.label(), r.content));
+    }
+
+    // Footer with token usage
+    body.push_str(&format!(
+        "---\n*Tokens: {} in / {} out*\n",
+        stats.total_input_tokens, stats.total_output_tokens,
+    ));
+
+    body
+}
+
+/// Maximum number of inline comments to post (avoid API spam).
+const MAX_INLINE_COMMENTS: usize = 25;
+
+/// Parse full file paths from diff headers (`+++ b/path/to/file`).
+fn parse_diff_paths(diff: &str) -> Vec<String> {
+    diff.lines()
+        .filter_map(|line| {
+            line.strip_prefix("+++ b/").map(|p| p.to_string())
+        })
+        .collect()
+}
+
+/// Resolve a potentially short filename (e.g., `AISettingsController.java`) to
+/// the full path from the diff (e.g., `kaguya-api/.../AISettingsController.java`).
+fn resolve_path(short: &str, diff_paths: &[String]) -> String {
+    // If it already contains a `/`, assume it's a full (or partial) path.
+    if short.contains('/') {
+        // Still try to find an exact match or suffix match in diff paths.
+        if let Some(full) = diff_paths.iter().find(|p| p.as_str() == short || p.ends_with(short)) {
+            return full.clone();
+        }
+        return short.to_string();
+    }
+
+    // Simple filename — find the diff path that ends with this filename.
+    let suffix = format!("/{}", short);
+    if let Some(full) = diff_paths.iter().find(|p| p.ends_with(&suffix) || p.as_str() == short) {
+        return full.clone();
+    }
+
+    // No match found; return as-is (may still work if the platform is lenient).
+    short.to_string()
+}
+
+/// Parse the first changed (added) line number for each file from the diff.
+///
+/// Returns a map of file path → first new line number in the diff.
+fn parse_first_changed_lines(diff: &str) -> std::collections::HashMap<String, u32> {
+    let mut result = std::collections::HashMap::new();
+    let mut current_file: Option<String> = None;
+    let mut current_new_line: u32 = 0;
+
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_file = Some(path.to_string());
+        } else if line.starts_with("@@ ") {
+            // Parse hunk header: @@ -old,count +new,count @@
+            if let Some(plus_pos) = line.find('+') {
+                let after_plus = &line[plus_pos + 1..];
+                let num_str: String = after_plus.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(n) = num_str.parse::<u32>() {
+                    current_new_line = n;
+                }
+            }
+        } else if line.starts_with('+') && !line.starts_with("+++") {
+            // This is an added line — record first occurrence per file.
+            if let Some(ref file) = current_file {
+                result.entry(file.clone()).or_insert(current_new_line);
+            }
+            current_new_line += 1;
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            // Deleted line doesn't advance new line counter.
+        } else if !line.starts_with('\\') {
+            // Context line — advances new line counter.
+            current_new_line += 1;
+        }
+    }
+
+    result
+}
+
+/// Extract inline review comments from pass results.
+///
+/// Uses [`dedup::deduplicate_findings`] to get structured findings with file/line
+/// information, then converts each finding into a [`platform::Comment`].
+///
+/// The `diff` parameter is used to:
+/// 1. Resolve short filenames (e.g., `Foo.java`) to full diff paths.
+/// 2. Provide fallback line numbers when the AI doesn't specify one.
+pub fn extract_inline_comments(results: &[PassResult], diff: &str) -> Vec<platform::Comment> {
+    let findings = dedup::deduplicate_findings(results);
+    let diff_paths = parse_diff_paths(diff);
+    let first_changed_lines = parse_first_changed_lines(diff);
+
+    findings
+        .into_iter()
+        .filter_map(|f| {
+            // Must have at least a file reference to make an inline comment.
+            let short_path = f.file?;
+            let path = resolve_path(&short_path, &diff_paths);
+
+            // Use AI-provided line, or fall back to the first changed line for this file.
+            let line = f.line.or_else(|| first_changed_lines.get(&path).copied())?;
+
+            let passes = f.passes.join(", ");
+            let body = format!(
+                "**[{}] {}: {}**\n\n{}",
+                f.severity.label(),
+                passes,
+                f.title,
+                f.content.trim(),
+            );
+            Some(platform::Comment {
+                body,
+                path: Some(path),
+                line: Some(line),
+            })
+        })
+        .take(MAX_INLINE_COMMENTS)
+        .collect()
+}
+
+/// Build a brief summary body for the overview comment.
+///
+/// Contains ONLY: header, summary table, verdict, Summary pass content, and
+/// token footer. Detailed findings from non-Summary passes are omitted — those
+/// are posted as inline comments.
+pub fn build_summary_body(
+    results: &[PassResult],
+    inline_count: usize,
+    model: &str,
+    context_label: &str,
+) -> String {
+    let stats = ReviewStats::from_results(results);
+    let version = env!("CARGO_PKG_VERSION");
+
+    let mut body = String::with_capacity(2048);
+
+    // Header
+    body.push_str(&format!(
+        "## Byakugan AI Review\n\n\
+         > **v{}** | model: `{}` | context: {}\n\n",
+        version, model, context_label,
+    ));
+
+    // Summary table
+    body.push_str("| Pass | Findings | Severity |\n|------|----------|----------|\n");
+    for r in results {
+        let findings = if r.finding_count == 0 {
+            "No issues".to_string()
+        } else {
+            format!("{} finding(s)", r.finding_count)
+        };
+        body.push_str(&format!(
+            "| {} | {} | {} |\n",
+            r.pass.label(),
+            findings,
+            r.severity.label(),
+        ));
+    }
+    body.push('\n');
+
+    // Overall verdict
+    let verdict = if stats.max_severity >= Severity::High {
+        "NEEDS CHANGES"
+    } else if stats.total_findings == 0 {
+        "LOOKS GOOD"
+    } else {
+        "MINOR CONCERNS"
+    };
+    body.push_str(&format!(
+        "**Overall: {} ({} finding(s), max severity: {})**\n\n",
+        verdict, stats.total_findings, stats.max_severity,
+    ));
+
+    // Inline comments note
+    if inline_count > 0 {
+        body.push_str(&format!(
+            "*{} inline comment(s) posted on specific files.*\n\n",
+            inline_count,
+        ));
+    }
+
+    body.push_str("---\n\n");
+
+    // Only include the Summary pass content in the overview body.
+    for r in results {
+        if r.pass == ReviewPass::Summary && !r.content.starts_with("Error:") {
+            body.push_str(&format!("### {} Review\n\n{}\n\n", r.pass.label(), r.content));
+        }
+    }
+
+    // Footer with token usage
+    body.push_str(&format!(
+        "---\n*Tokens: {} in / {} out*\n",
+        stats.total_input_tokens, stats.total_output_tokens,
+    ));
+
+    body
 }
 
 /// Compute aggregate statistics from a set of pass results.

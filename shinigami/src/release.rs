@@ -72,7 +72,7 @@ pub async fn run(config: &Config, ui: &NakamaUI, version: &str) -> Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let commit_list = git::truncate_diff(&commit_list, 6000);
+    let commit_list = nakama_core::diff::truncate_diff(&commit_list, 6000);
 
     let spinner = ui.step_start("Generating release notes...");
     let provider = ai_helper::build_provider(config, ModelTier::Balanced)?;

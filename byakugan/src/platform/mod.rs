@@ -142,6 +142,14 @@ pub struct Review {
     pub comments: Vec<Comment>,
 }
 
+/// Result from posting inline comments individually with per-comment resilience.
+#[derive(Debug, Clone)]
+pub struct InlinePostResult {
+    pub posted: usize,
+    pub failed: usize,
+    pub errors: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Trait
 // ---------------------------------------------------------------------------
@@ -192,6 +200,34 @@ pub trait PlatformAdapter: Send + Sync {
         number: u64,
         comment: &Comment,
     ) -> Result<()>;
+
+    /// Post inline comments individually with per-comment resilience.
+    ///
+    /// Default implementation calls `post_comment()` for each comment,
+    /// continuing on failure and collecting error counts.
+    async fn post_inline_comments(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: u64,
+        comments: &[Comment],
+    ) -> InlinePostResult {
+        let mut result = InlinePostResult {
+            posted: 0,
+            failed: 0,
+            errors: Vec::new(),
+        };
+        for comment in comments {
+            match self.post_comment(owner, repo, number, comment).await {
+                Ok(()) => result.posted += 1,
+                Err(e) => {
+                    result.failed += 1;
+                    result.errors.push(format!("{:#}", e));
+                }
+            }
+        }
+        result
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,24 +263,43 @@ pub fn create_adapter(
             )))
         }
         Platform::Bitbucket => {
+            // Resolve username: config → NAKAMA_BITBUCKET_USERNAME → BITBUCKET_USERNAME
             let username = config
                 .bitbucket
                 .username
                 .clone()
-                .or_else(|| std::env::var("BITBUCKET_USERNAME").ok())
-                .context(
-                    "Bitbucket username not found. Set it in config.toml or BITBUCKET_USERNAME env var.",
-                )?;
-            let app_password = resolve_token(
+                .or_else(|| std::env::var("NAKAMA_BITBUCKET_USERNAME").ok())
+                .or_else(|| std::env::var("BITBUCKET_USERNAME").ok());
+
+            // Resolve token/password: config → NAKAMA_BITBUCKET_API_KEY → vault → BITBUCKET_APP_PASSWORD
+            let token = resolve_token(
                 config.bitbucket.app_password.as_deref(),
                 "bitbucket",
-                "BITBUCKET_APP_PASSWORD",
-            )?;
-            Ok(Box::new(bitbucket::BitbucketAdapter::new(
-                &username,
-                &app_password,
-                &config.bitbucket.api_url,
-            )))
+                "NAKAMA_BITBUCKET_API_KEY",
+            )
+            .or_else(|_| resolve_token(None, "bitbucket_app_password", "BITBUCKET_APP_PASSWORD"));
+
+            match (username, token) {
+                // Basic Auth with username + token (Atlassian API tokens require this).
+                (Some(user), Ok(tok)) => Ok(Box::new(bitbucket::BitbucketAdapter::new(
+                    &user,
+                    &tok,
+                    &config.bitbucket.api_url,
+                ))),
+                // Token only — try Bearer auth (workspace/repo access tokens).
+                (None, Ok(tok)) => Ok(Box::new(
+                    bitbucket::BitbucketAdapter::new_with_bearer_token(
+                        &tok,
+                        &config.bitbucket.api_url,
+                    ),
+                )),
+                // No token found at all.
+                _ => anyhow::bail!(
+                    "Bitbucket credentials not found. Set NAKAMA_BITBUCKET_API_KEY \
+                     (+ NAKAMA_BITBUCKET_USERNAME for Atlassian API tokens), \
+                     or configure username + app_password in config.toml."
+                ),
+            }
         }
     }
 }
@@ -343,6 +398,96 @@ fn parse_owner_repo_from_url(url: &str) -> Result<(String, String)> {
     anyhow::bail!("Could not parse owner/repo from remote URL: {}", url)
 }
 
+/// Parsed components from a PR/MR URL.
+#[derive(Debug, Clone)]
+pub struct ParsedPrUrl {
+    pub platform: Platform,
+    pub owner: String,
+    pub repo: String,
+    pub number: u64,
+}
+
+/// Parse a PR/MR URL into its components.
+///
+/// Supported formats:
+/// - `https://bitbucket.org/{workspace}/{repo}/pull-requests/{number}`
+/// - `https://github.com/{owner}/{repo}/pull/{number}`
+/// - `https://gitlab.com/{owner}/{repo}/-/merge_requests/{number}`
+pub fn parse_pr_url(url: &str) -> Result<ParsedPrUrl> {
+    let url = url.trim().trim_end_matches('/');
+
+    // Strip scheme.
+    let without_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .context("PR URL must start with https:// or http://")?;
+
+    let parts: Vec<&str> = without_scheme.split('/').collect();
+
+    // Bitbucket: bitbucket.org/{workspace}/{repo}/pull-requests/{number}
+    if without_scheme.starts_with("bitbucket.org") || without_scheme.starts_with("www.bitbucket.org") {
+        // parts: [host, workspace, repo, "pull-requests", number]
+        let skip = if parts[0].starts_with("www.") { 1 } else { 1 };
+        if parts.len() >= skip + 4 && parts[skip + 2] == "pull-requests" {
+            let number = parts[skip + 3]
+                .parse::<u64>()
+                .context("Invalid PR number in Bitbucket URL")?;
+            return Ok(ParsedPrUrl {
+                platform: Platform::Bitbucket,
+                owner: parts[skip].to_string(),
+                repo: parts[skip + 1].to_string(),
+                number,
+            });
+        }
+    }
+
+    // GitHub: github.com/{owner}/{repo}/pull/{number}
+    if without_scheme.starts_with("github.com") {
+        if parts.len() >= 5 && parts[3] == "pull" {
+            let number = parts[4]
+                .parse::<u64>()
+                .context("Invalid PR number in GitHub URL")?;
+            return Ok(ParsedPrUrl {
+                platform: Platform::GitHub,
+                owner: parts[1].to_string(),
+                repo: parts[2].to_string(),
+                number,
+            });
+        }
+    }
+
+    // GitLab: gitlab.com/{owner}/{repo}/-/merge_requests/{number}
+    if without_scheme.starts_with("gitlab.com") || without_scheme.contains("gitlab") {
+        // Find the `/-/merge_requests/{number}` pattern.
+        if let Some(mr_pos) = parts.iter().position(|&p| p == "merge_requests") {
+            if mr_pos >= 2 && mr_pos + 1 < parts.len() {
+                let number = parts[mr_pos + 1]
+                    .parse::<u64>()
+                    .context("Invalid MR number in GitLab URL")?;
+                // Owner might be nested (groups/subgroups), repo is right before "-".
+                let dash_pos = parts.iter().position(|&p| p == "-").unwrap_or(mr_pos);
+                let owner = parts[1..dash_pos - 1].join("/");
+                let repo = parts[dash_pos - 1].to_string();
+                return Ok(ParsedPrUrl {
+                    platform: Platform::GitLab,
+                    owner,
+                    repo,
+                    number,
+                });
+            }
+        }
+    }
+
+    anyhow::bail!(
+        "Could not parse PR URL: {}\n\
+         Supported formats:\n  \
+         https://bitbucket.org/{{workspace}}/{{repo}}/pull-requests/{{number}}\n  \
+         https://github.com/{{owner}}/{{repo}}/pull/{{number}}\n  \
+         https://gitlab.com/{{owner}}/{{repo}}/-/merge_requests/{{number}}",
+        url
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,5 +514,32 @@ mod tests {
         assert_eq!(Platform::from_str("github").unwrap(), Platform::GitHub);
         assert_eq!(Platform::from_str("gitlab").unwrap(), Platform::GitLab);
         assert_eq!(Platform::from_str("bb").unwrap(), Platform::Bitbucket);
+    }
+
+    #[test]
+    fn test_parse_bitbucket_pr_url() {
+        let parsed = parse_pr_url("https://bitbucket.org/myworkspace/myrepo/pull-requests/1554").unwrap();
+        assert_eq!(parsed.platform, Platform::Bitbucket);
+        assert_eq!(parsed.owner, "myworkspace");
+        assert_eq!(parsed.repo, "myrepo");
+        assert_eq!(parsed.number, 1554);
+    }
+
+    #[test]
+    fn test_parse_github_pr_url() {
+        let parsed = parse_pr_url("https://github.com/tchandrakar/nakama-cli-suite/pull/42").unwrap();
+        assert_eq!(parsed.platform, Platform::GitHub);
+        assert_eq!(parsed.owner, "tchandrakar");
+        assert_eq!(parsed.repo, "nakama-cli-suite");
+        assert_eq!(parsed.number, 42);
+    }
+
+    #[test]
+    fn test_parse_gitlab_mr_url() {
+        let parsed = parse_pr_url("https://gitlab.com/mygroup/myproject/-/merge_requests/99").unwrap();
+        assert_eq!(parsed.platform, Platform::GitLab);
+        assert_eq!(parsed.owner, "mygroup");
+        assert_eq!(parsed.repo, "myproject");
+        assert_eq!(parsed.number, 99);
     }
 }
