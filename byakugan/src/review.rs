@@ -302,25 +302,66 @@ fn resolve_path(short: &str, diff_paths: &[String]) -> String {
     short.to_string()
 }
 
+/// Parse the first changed (added) line number for each file from the diff.
+///
+/// Returns a map of file path → first new line number in the diff.
+fn parse_first_changed_lines(diff: &str) -> std::collections::HashMap<String, u32> {
+    let mut result = std::collections::HashMap::new();
+    let mut current_file: Option<String> = None;
+    let mut current_new_line: u32 = 0;
+
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            current_file = Some(path.to_string());
+        } else if line.starts_with("@@ ") {
+            // Parse hunk header: @@ -old,count +new,count @@
+            if let Some(plus_pos) = line.find('+') {
+                let after_plus = &line[plus_pos + 1..];
+                let num_str: String = after_plus.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(n) = num_str.parse::<u32>() {
+                    current_new_line = n;
+                }
+            }
+        } else if line.starts_with('+') && !line.starts_with("+++") {
+            // This is an added line — record first occurrence per file.
+            if let Some(ref file) = current_file {
+                result.entry(file.clone()).or_insert(current_new_line);
+            }
+            current_new_line += 1;
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            // Deleted line doesn't advance new line counter.
+        } else if !line.starts_with('\\') {
+            // Context line — advances new line counter.
+            current_new_line += 1;
+        }
+    }
+
+    result
+}
+
 /// Extract inline review comments from pass results.
 ///
 /// Uses [`dedup::deduplicate_findings`] to get structured findings with file/line
-/// information, then converts each finding that has **both** a file path and a
-/// line number into a [`platform::Comment`]. Findings without location info are
-/// skipped (they remain in the overview body).
+/// information, then converts each finding into a [`platform::Comment`].
 ///
-/// The `diff` parameter is used to resolve short filenames (e.g., `Foo.java`)
-/// to the full paths present in the diff (e.g., `src/main/java/com/example/Foo.java`).
+/// The `diff` parameter is used to:
+/// 1. Resolve short filenames (e.g., `Foo.java`) to full diff paths.
+/// 2. Provide fallback line numbers when the AI doesn't specify one.
 pub fn extract_inline_comments(results: &[PassResult], diff: &str) -> Vec<platform::Comment> {
     let findings = dedup::deduplicate_findings(results);
     let diff_paths = parse_diff_paths(diff);
+    let first_changed_lines = parse_first_changed_lines(diff);
 
     findings
         .into_iter()
         .filter_map(|f| {
+            // Must have at least a file reference to make an inline comment.
             let short_path = f.file?;
-            let line = f.line?;
             let path = resolve_path(&short_path, &diff_paths);
+
+            // Use AI-provided line, or fall back to the first changed line for this file.
+            let line = f.line.or_else(|| first_changed_lines.get(&path).copied())?;
+
             let passes = f.passes.join(", ");
             let body = format!(
                 "**[{}] {}: {}**\n\n{}",

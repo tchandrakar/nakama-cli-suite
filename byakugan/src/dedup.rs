@@ -85,6 +85,44 @@ fn is_similar(a: &DedupFinding, b: &DedupFinding) -> bool {
     false
 }
 
+/// Strip leading markdown decoration (`#`, `*`, `-`, whitespace) from a line
+/// to expose the underlying numbered item (e.g., "### 1. Title" → "1. Title").
+fn strip_markdown_prefix(line: &str) -> &str {
+    let s = line.trim();
+    let s = s.trim_start_matches('#').trim_start_matches('*').trim_start_matches('-').trim();
+    // Also strip bold markers: "**1." → "1."
+    s.trim_start_matches("**").trim()
+}
+
+/// Check if a (stripped) line starts with a numbered item like "1." or "12.".
+fn is_numbered_item(stripped: &str) -> bool {
+    let mut chars = stripped.chars();
+    let first = match chars.next() {
+        Some(c) if c.is_ascii_digit() => c,
+        _ => return false,
+    };
+    // Allow multi-digit numbers (e.g., "10.")
+    let _ = first;
+    for c in chars {
+        if c == '.' {
+            return true;
+        }
+        if !c.is_ascii_digit() {
+            return false;
+        }
+    }
+    false
+}
+
+/// Extract the title text after the "N." prefix.
+fn extract_numbered_title(stripped: &str) -> String {
+    if let Some(dot_pos) = stripped.find('.') {
+        stripped[dot_pos + 1..].trim().to_string()
+    } else {
+        stripped.to_string()
+    }
+}
+
 /// Extract individual findings from a pass's AI response content.
 fn extract_findings_from_content(content: &str, pass_label: &str) -> Vec<DedupFinding> {
     let mut findings = Vec::new();
@@ -105,20 +143,15 @@ fn extract_findings_from_content(content: &str, pass_label: &str) -> Vec<DedupFi
         }
     }
 
-    // Split by numbered items (1., 2., etc.).
+    // Split by numbered items (1., 2., etc.) — also handles "### 1.", "**1.", etc.
     let mut current_title = String::new();
     let mut current_content = String::new();
     let mut current_severity = Severity::Low;
 
     for line in content.lines() {
-        let trimmed = line.trim();
+        let stripped = strip_markdown_prefix(line);
 
-        // Check for numbered finding start.
-        let is_numbered = trimmed.len() >= 2
-            && trimmed.chars().next().map_or(false, |c| c.is_ascii_digit())
-            && trimmed.chars().nth(1) == Some('.');
-
-        if is_numbered {
+        if is_numbered_item(stripped) {
             // Save previous finding.
             if !current_title.is_empty() {
                 findings.push(DedupFinding {
@@ -132,14 +165,11 @@ fn extract_findings_from_content(content: &str, pass_label: &str) -> Vec<DedupFi
                 });
             }
 
-            current_title = trimmed
-                .splitn(2, '.')
-                .nth(1)
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
+            current_title = extract_numbered_title(stripped);
             current_content = String::new();
-            current_severity = detect_severity(trimmed);
+            current_severity = detect_severity(stripped);
         } else {
+            let trimmed = line.trim();
             current_content.push_str(trimmed);
             current_content.push('\n');
             let line_severity = detect_severity(trimmed);
@@ -201,46 +231,98 @@ const SOURCE_EXTENSIONS: &[&str] = &[
 ];
 
 fn extract_file_reference(content: &str) -> Option<String> {
-    // Look for file path patterns in the content.
-    for line in content.lines() {
-        let trimmed = line.trim();
+    // Collect all candidate tokens: split on whitespace AND extract backtick-delimited spans.
+    let candidates = extract_candidate_tokens(content);
 
-        // First try: path with / and . (e.g., "src/main.rs", "path/to/file.java")
-        if trimmed.contains('/') && trimmed.contains('.') {
-            for word in trimmed.split_whitespace() {
-                let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-');
-                if clean.contains('/') && clean.contains('.') && clean.len() > 3 {
+    // First pass: look for full paths with / and .
+    for token in &candidates {
+        let clean = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-');
+        if clean.contains('/') && clean.contains('.') && clean.len() > 3 {
+            return Some(clean.to_string());
+        }
+    }
+
+    // Second pass: simple filename with a known extension (e.g., "AISettingsController.java")
+    for token in &candidates {
+        let clean = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-');
+        if clean.len() > 3 && SOURCE_EXTENSIONS.iter().any(|ext| clean.ends_with(ext)) {
+            if let Some(dot_pos) = clean.rfind('.') {
+                if dot_pos > 0 {
                     return Some(clean.to_string());
                 }
             }
         }
-
-        // Second try: simple filename with a known extension (e.g., "AISettingsController.java")
-        for word in trimmed.split_whitespace() {
-            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '_' && c != '-');
-            if clean.len() > 3 && SOURCE_EXTENSIONS.iter().any(|ext| clean.ends_with(ext)) {
-                // Ensure it looks like a filename (has at least one char before the extension)
-                if let Some(dot_pos) = clean.rfind('.') {
-                    if dot_pos > 0 {
-                        return Some(clean.to_string());
-                    }
-                }
-            }
-        }
     }
+
     None
 }
 
-fn extract_line_reference(content: &str) -> Option<u32> {
-    // Look for "line X" or "Line X" patterns.
-    let lower = content.to_lowercase();
-    if let Some(idx) = lower.find("line ") {
-        let after = &content[idx + 5..];
-        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if let Ok(n) = num_str.parse() {
-            return Some(n);
+/// Extract candidate tokens from content: words from whitespace splitting
+/// plus text inside backticks (`` `...` ``).
+fn extract_candidate_tokens(content: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Extract backtick-delimited tokens.
+        let mut rest = trimmed;
+        while let Some(start) = rest.find('`') {
+            let after_tick = &rest[start + 1..];
+            if let Some(end) = after_tick.find('`') {
+                let inside = &after_tick[..end];
+                if !inside.is_empty() && !inside.contains('\n') {
+                    tokens.push(inside.to_string());
+                }
+                rest = &after_tick[end + 1..];
+            } else {
+                break;
+            }
+        }
+
+        // Also add plain whitespace-split words.
+        for word in trimmed.split_whitespace() {
+            tokens.push(word.to_string());
         }
     }
+
+    tokens
+}
+
+fn extract_line_reference(content: &str) -> Option<u32> {
+    let lower = content.to_lowercase();
+
+    // Try multiple patterns:
+    // "line 42", "Line 42", "line: 42", "lines 42-50" (take first), "L42"
+    let patterns: &[&str] = &["line ", "line: ", "lines ", "line:", "l:"];
+    for pat in patterns {
+        let mut search_from = 0;
+        while let Some(idx) = lower[search_from..].find(pat) {
+            let abs_idx = search_from + idx + pat.len();
+            let after = &content[abs_idx..];
+            // Skip any whitespace
+            let after = after.trim_start();
+            let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(n) = num_str.parse::<u32>() {
+                if n > 0 && n < 100_000 {
+                    return Some(n);
+                }
+            }
+            search_from = abs_idx;
+        }
+    }
+
+    // Also look for "@line N" or "at line N" patterns.
+    if let Some(idx) = lower.find("at line ") {
+        let after = &content[idx + 8..];
+        let num_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = num_str.parse::<u32>() {
+            if n > 0 && n < 100_000 {
+                return Some(n);
+            }
+        }
+    }
+
     None
 }
 

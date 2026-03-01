@@ -44,12 +44,16 @@ impl ReviewPass {
                  - Insecure deserialization\n\
                  - Missing input validation or sanitization\n\
                  - Information leakage through error messages or logs\n\n\
-                 For each finding, provide:\n\
-                 1. A short title\n\
-                 2. The severity: CRITICAL, HIGH, MEDIUM, or LOW\n\
-                 3. The affected lines or code snippet\n\
-                 4. A brief explanation of the risk\n\
-                 5. A suggested fix\n\n\
+                 IMPORTANT: Your findings will be posted as inline comments on the PR diff. \
+                 For each finding, you MUST include the exact file path and line number.\n\n\
+                 Format each finding as:\n\
+                 1. **Short title**\n\
+                 **Severity:** CRITICAL | HIGH | MEDIUM | LOW\n\
+                 **File:** `exact/path/to/file.ext` **Line:** N\n\
+                 **Issue:** Brief explanation of the risk.\n\
+                 **Fix:** Suggested fix or code snippet.\n\n\
+                 Use the EXACT file paths from the diff headers (e.g., `src/main/java/com/example/Foo.java`), \
+                 not shortened names. The line number must be from the NEW side of the diff (+ lines).\n\n\
                  If no issues are found, respond with: \"No security issues found.\"\n\
                  Be concise and precise. Do not invent problems that don't exist."
             }
@@ -65,12 +69,16 @@ impl ReviewPass {
                  - Unnecessary network round-trips\n\
                  - Hot-path allocations that could be avoided\n\
                  - Large structs passed by value instead of by reference\n\n\
-                 For each finding, provide:\n\
-                 1. A short title\n\
-                 2. The severity: CRITICAL, HIGH, MEDIUM, or LOW\n\
-                 3. The affected lines or code snippet\n\
-                 4. A brief explanation of the impact\n\
-                 5. A suggested optimization\n\n\
+                 IMPORTANT: Your findings will be posted as inline comments on the PR diff. \
+                 For each finding, you MUST include the exact file path and line number.\n\n\
+                 Format each finding as:\n\
+                 1. **Short title**\n\
+                 **Severity:** CRITICAL | HIGH | MEDIUM | LOW\n\
+                 **File:** `exact/path/to/file.ext` **Line:** N\n\
+                 **Issue:** Brief explanation of the impact.\n\
+                 **Fix:** Suggested optimization.\n\n\
+                 Use the EXACT file paths from the diff headers (e.g., `src/main/java/com/example/Foo.java`), \
+                 not shortened names. The line number must be from the NEW side of the diff (+ lines).\n\n\
                  If no issues are found, respond with: \"No performance concerns found.\"\n\
                  Be concise and precise. Do not invent problems that don't exist."
             }
@@ -86,12 +94,16 @@ impl ReviewPass {
                  - Dead code or unreachable branches\n\
                  - Inconsistent error message formatting\n\
                  - Overly broad imports or unused dependencies\n\n\
-                 For each finding, provide:\n\
-                 1. A short title\n\
-                 2. The severity: HIGH, MEDIUM, or LOW\n\
-                 3. The affected lines or code snippet\n\
-                 4. A brief explanation\n\
-                 5. A suggested improvement\n\n\
+                 IMPORTANT: Your findings will be posted as inline comments on the PR diff. \
+                 For each finding, you MUST include the exact file path and line number.\n\n\
+                 Format each finding as:\n\
+                 1. **Short title**\n\
+                 **Severity:** HIGH | MEDIUM | LOW\n\
+                 **File:** `exact/path/to/file.ext` **Line:** N\n\
+                 **Issue:** Brief explanation.\n\
+                 **Fix:** Suggested improvement.\n\n\
+                 Use the EXACT file paths from the diff headers (e.g., `src/main/java/com/example/Foo.java`), \
+                 not shortened names. The line number must be from the NEW side of the diff (+ lines).\n\n\
                  If no issues are found, respond with: \"No style issues found.\"\n\
                  Be concise. Focus on actionable improvements, not nitpicks."
             }
@@ -107,12 +119,16 @@ impl ReviewPass {
                  - Incorrect type conversions or truncation\n\
                  - Assumptions that may not hold in production\n\
                  - Missing validation of preconditions or invariants\n\n\
-                 For each finding, provide:\n\
-                 1. A short title\n\
-                 2. The severity: CRITICAL, HIGH, MEDIUM, or LOW\n\
-                 3. The affected lines or code snippet\n\
-                 4. A brief explanation of the bug or risk\n\
-                 5. A suggested fix\n\n\
+                 IMPORTANT: Your findings will be posted as inline comments on the PR diff. \
+                 For each finding, you MUST include the exact file path and line number.\n\n\
+                 Format each finding as:\n\
+                 1. **Short title**\n\
+                 **Severity:** CRITICAL | HIGH | MEDIUM | LOW\n\
+                 **File:** `exact/path/to/file.ext` **Line:** N\n\
+                 **Issue:** Brief explanation of the bug or risk.\n\
+                 **Fix:** Suggested fix.\n\n\
+                 Use the EXACT file paths from the diff headers (e.g., `src/main/java/com/example/Foo.java`), \
+                 not shortened names. The line number must be from the NEW side of the diff (+ lines).\n\n\
                  If no issues are found, respond with: \"No logic issues found.\"\n\
                  Be concise and precise. Do not invent problems that don't exist."
             }
@@ -272,15 +288,25 @@ pub fn parse_findings(content: &str) -> (usize, Severity) {
         }
     }
 
-    // Count numbered findings (e.g., "1.", "2.", "3." at line starts).
+    // Count numbered findings (e.g., "1.", "### 2.", "**3." at line starts).
     let mut count = 0usize;
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.len() >= 2 {
-            let first_char = trimmed.chars().next().unwrap_or(' ');
-            let second_char = trimmed.chars().nth(1).unwrap_or(' ');
-            if first_char.is_ascii_digit() && second_char == '.' {
-                count += 1;
+        // Strip leading markdown decoration (#, *, -)
+        let stripped = trimmed
+            .trim_start_matches('#')
+            .trim_start_matches('*')
+            .trim_start_matches('-')
+            .trim()
+            .trim_start_matches("**")
+            .trim();
+        if stripped.len() >= 2 {
+            let first_char = stripped.chars().next().unwrap_or(' ');
+            if first_char.is_ascii_digit() {
+                // Check for "N." pattern (possibly multi-digit)
+                if stripped.chars().skip_while(|c| c.is_ascii_digit()).next() == Some('.') {
+                    count += 1;
+                }
             }
         }
     }
